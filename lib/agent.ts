@@ -1,11 +1,19 @@
 // M1 agent loop: Muse Spark + AdvenBook MCP tools, server-side only.
 import { chatCompletion, type ChatMessage } from "./models";
 import { callMcpTool, listMcpTools } from "./mcp";
+import { editorUrlFromClaim } from "./book-link";
 
 export type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
   | { kind: "activities"; activities: Activity[] }
-  | { kind: "book"; bookId: string; claimUrl: string; estimatedPages?: number; price?: unknown };
+  | {
+      kind: "book";
+      bookId: string;
+      claimUrl: string;
+      editorUrl?: string;
+      estimatedPages?: number;
+      price?: unknown;
+    };
 
 export type Activity = {
   strava_activity_id: string;
@@ -34,7 +42,7 @@ Flow you must follow:
 3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. The user confirms/edits the selection in a checklist.
 4. Interview (OPTIONAL, not the goal — the goal is the book draft): offer it, and if the user wants stories, for each chosen outing ask 1-2 short warm questions (who was there, a highlight, how they felt), one outing at a time, then write a 2-4 sentence first-person story in the user's own words. NEVER invent facts. If the user skips, or says "create directly / crée directement", use empty stories and go straight to creation.
 Photos: if the user mentions adding photos in the conversation, answer that photos already on Strava are added automatically by AdvenBook, and that dropping extra phone photos here arrives in the next milestone — do not claim you received photos you cannot see, and continue creating the book without them unless the user insists on waiting.
-5. Call create_adventure_book exactly once (title, strava_connection_id, language, data_source, and the chosen activities with their stories and strava_activity_id). Keep Strava titles unchanged unless the user asks. Then present the claimUrl as the "Open my book" link with the estimated price.
+5. Call create_adventure_book exactly once. For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then present the claimUrl as the "Open my book" link with the estimated price.
 Never say the book is ordered or paid: it is a draft the user orders on advenbook.com.
 
 Language: reply in the user's language (English by default, French if they write in French). Be warm, brief, and concrete. If a tool errors (not connected, expired link, no activities), say what happened and what to do next.`;
@@ -63,6 +71,7 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
       kind: "book",
       bookId: String(r.bookId ?? ""),
       claimUrl: r.claimUrl,
+      editorUrl: editorUrlFromClaim(r.claimUrl) ?? undefined,
       estimatedPages: typeof r.estimatedPages === "number" ? r.estimatedPages : undefined,
       price: r.price,
     });
@@ -104,6 +113,30 @@ export async function runAgent(
         args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
       } catch {
         args = {};
+      }
+      if (name === "create_adventure_book") {
+        const acts = Array.isArray(args.activities) ? args.activities : [];
+        console.log(
+          "create_adventure_book args:",
+          JSON.stringify({
+            hasConnectionId: Boolean(args.strava_connection_id),
+            dataSource: args.data_source,
+            language: args.language,
+            activities: acts.length,
+            withStravaId: acts.filter(
+              (a) =>
+                typeof a === "object" &&
+                a !== null &&
+                Boolean((a as Record<string, unknown>).strava_activity_id),
+            ).length,
+            withPolyline: acts.filter(
+              (a) =>
+                typeof a === "object" &&
+                a !== null &&
+                Boolean((a as Record<string, unknown>).gps_polyline),
+            ).length,
+          }),
+        );
       }
       let result: unknown;
       try {

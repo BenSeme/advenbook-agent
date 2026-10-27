@@ -14,7 +14,14 @@ type Activity = {
 type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
   | { kind: "activities"; activities: Activity[] }
-  | { kind: "book"; bookId: string; claimUrl: string; estimatedPages?: number; price?: unknown };
+  | {
+      kind: "book";
+      bookId: string;
+      claimUrl: string;
+      editorUrl?: string;
+      estimatedPages?: number;
+      price?: unknown;
+    };
 
 type Msg = { role: "user" | "assistant"; content: string; ui?: UiEvent[] };
 
@@ -379,9 +386,26 @@ export default function Home() {
                       : ""}
                     This is a draft — you order it on advenbook.com, nothing is paid yet.
                   </p>
-                  <a className="btn" href={e.claimUrl} target="_blank" rel="noreferrer">
-                    Open my book
-                  </a>
+                  <div className="row" style={{ marginTop: 0 }}>
+                    <a
+                      className="btn"
+                      href={e.editorUrl ?? e.claimUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open my book
+                    </a>
+                    {e.editorUrl && (
+                      <a
+                        className="btn secondary"
+                        href={e.claimUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Lien claim / aperçu simple
+                      </a>
+                    )}
+                  </div>
                 </div>
               );
             })}
