@@ -1,0 +1,52 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: #eef1ea;
+  color: #1c2a1e;
+  font-family: ui-sans-system, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.shell {
+  display: flex; flex-direction: column; height: 100dvh;
+  max-width: 760px; margin: 0 auto; background: #f7f8f3;
+  border-left: 1px solid #d8dfcf; border-right: 1px solid #d8dfcf;
+}
+header {
+  padding: 16px 20px 12px; border-bottom: 1px solid #d8dfcf;
+  background: #22391f; color: #f2f5ec;
+}
+header h1 {
+  margin: 0; font-size: 22px; line-height: 1.15;
+  font-family: Georgia, "Times New Roman", serif; font-weight: 600;
+}
+header p { margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: #cfe0c2; }
+main { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 92%; padding: 10px 14px; border-radius: 14px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: #22391f; color: #f2f5ec; border-bottom-right-radius: 4px; }
+.msg.assistant { align-self: flex-start; background: #fff; border: 1px solid #d8dfcf; border-bottom-left-radius: 4px; }
+.msg.error { align-self: flex-start; background: #fdf0ec; border: 1px solid #e8b4a6; color: #7a2e1d; }
+.status { align-self: flex-start; font-size: 13px; color: #5a6b52; display: flex; gap: 8px; align-items: center; }
+.spinner { width: 14px; height: 14px; border: 2px solid #b9c8ab; border-top-color: #22391f; border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.card { align-self: stretch; background: #fff; border: 1px solid #b9c8ab; border-radius: 14px; padding: 14px; }
+.card h2 { margin: 0 0 8px; font-size: 16px; font-family: Georgia, serif; }
+.btn {
+  display: inline-block; background: #e4572e; color: #fff; border: 0; border-radius: 10px;
+  padding: 12px 18px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
+  min-height: 48px;
+}
+.btn.secondary { background: #fff; color: #22391f; border: 1px solid #22391f; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid #e6ebdd; font-size: 14px; }
+.check input { width: 20px; height: 20px; margin-top: 1px; flex: none; accent-color: #22391f; }
+.check small { display: block; color: #5a6b52; }
+.book { text-align: left; }
+.book .price { font-size: 15px; margin: 6px 0 12px; }
+form.composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #d8dfcf; background: #f7f8f3; }
+form.composer input {
+  flex: 1; min-height: 48px; padding: 10px 14px; font-size: 16px;
+  border: 1px solid #b9c8ab; border-radius: 10px; background: #fff; color: #1c2a1e;
+}
+.hint { padding: 0 16px 10px; font-size: 12px; color: #5a6b52; background: #f7f8f3; }
