@@ -128,8 +128,9 @@ https://www.advenbook.com/api/mcp
 
 ## 5. Rules
 
-- **This repo will be public**, and the hackathon gives Meta a licence on the submission. Never
-  put secrets, personal data, or real users' photos in it.
+- **This repo is private and must stay private.** Never make it public, never push it anywhere
+  public. The hackathon still gives Meta a licence on whatever is submitted, so never put
+  secrets, personal data, or real users' photos in it.
 - **Credits are free, and Meta may use what is sent.** Test only with the founder's own Strava
   account and photos.
 - Keep dependencies few. Use TypeScript strict mode, Next.js App Router and plain CSS or Tailwind.
@@ -151,4 +152,4 @@ In English:
 - **"How we use Meta AI"**: one paragraph per model, saying what it does in the flow and why it
   matters.
 - Setup: env vars and `npm run dev`.
-- Licence: MIT (already in the repo).
+- Licence: proprietary, all rights reserved.

@@ -21,4 +21,4 @@ User → chat UI (`app/page.tsx`) → `/api/chat` → Muse Spark tool-calling lo
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+Proprietary — © AdvenBook, all rights reserved. This is a private repository: do not copy, distribute, or publish its contents.
