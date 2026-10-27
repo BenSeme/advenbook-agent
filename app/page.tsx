@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { activityBadges, isHighlight } from "@/lib/highlights";
 
 type Activity = {
   strava_activity_id: string;
@@ -9,6 +10,9 @@ type Activity = {
   sport?: string;
   distance_km?: number;
   elevation_gain_m?: number;
+  photos?: number;
+  has_route?: boolean;
+  is_race?: boolean;
 };
 
 type UiEvent =
@@ -453,9 +457,13 @@ export default function Home() {
                     <p style={{ margin: "0 0 6px", fontSize: 13, color: "#5a6b52" }}>
                       Proposition de l’agent : la course principale de chaque jour est cochée.
                       Les échauffements et retours au calme du même jour démarrent décochés — recochez-les si vous les voulez dans le livre.
+                      Les sorties « À mettre en valeur » (photos, course, beau tracé) sont signalées par un badge.
                     </p>
                     {e.activities.map((a) => (
-                      <label className="check" key={a.strava_activity_id}>
+                      <label
+                        className={isHighlight(a) ? "check highlight" : "check"}
+                        key={a.strava_activity_id}
+                      >
                         <input
                           type="checkbox"
                           checked={!!selected[a.strava_activity_id]}
@@ -468,6 +476,14 @@ export default function Home() {
                         />
                         <span>
                           {a.title}
+                          {isHighlight(a) && (
+                            <span className="badges">
+                              <span className="badge star">À mettre en valeur</span>
+                              {activityBadges(a).map((b) => (
+                                <span className="badge" key={b}>{b}</span>
+                              ))}
+                            </span>
+                          )}
                           <small>
                             {a.date}
                             {a.sport ? ` · ${a.sport}` : ""}
