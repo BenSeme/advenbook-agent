@@ -6,6 +6,32 @@ import {
   rewritePreviewLinks,
   stripAdvenBookUrls,
 } from "./book-link";
+import { del } from "@vercel/blob";
+
+/** After a successful book creation AdvenBook has copied the photos, so
+ *  our uploaded copies can go. On failure they are kept for a retry. */
+async function deleteUploadedPhotos(args: Record<string, unknown>): Promise<void> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  const acts = Array.isArray(args.activities) ? args.activities : [];
+  const urls = acts.flatMap((a) => {
+    const rec = asRecord(a);
+    return Array.isArray(rec.photo_urls)
+      ? rec.photo_urls.filter(
+          (u): u is string =>
+            typeof u === "string" &&
+            u.includes(".public.blob.vercel-storage.com"),
+        )
+      : [];
+  });
+  for (const url of urls) {
+    try {
+      await del(url);
+      console.log("blob deleted after book creation:", url);
+    } catch (err) {
+      console.error("blob delete failed (kept):", url, err instanceof Error ? err.message : err);
+    }
+  }
+}
 
 const FRENCH_MARKERS =
   /\b(je|tu|vous|mon|mes|les|des|une|est|fait|livre|sorties|avec|dans|pour|merci|bonjour|crée|cree|été|ete|mes)\b/gi;
@@ -192,6 +218,14 @@ export async function runAgent(
       try {
         result = await callMcpTool(name, args);
         extractUi(name, result, ui);
+        if (name === "create_adventure_book") {
+          const r = asRecord(result);
+          // Only on real success (a claim link came back): AdvenBook has
+          // copied the photos, delete our uploads. On any failure, keep them.
+          if (typeof r.claimUrl === "string") {
+            await deleteUploadedPhotos(args);
+          }
+        }
         if (name === "list_strava_activities") {
           const acts = asRecord(result).activities;
           if (Array.isArray(acts)) {
