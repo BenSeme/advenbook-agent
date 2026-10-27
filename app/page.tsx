@@ -2,6 +2,49 @@
 
 import { useEffect, useRef, useState } from "react";
 import { activityBadges, isHighlight } from "@/lib/highlights";
+import { parseGpx, type GpxActivity } from "@/lib/gpx";
+import exifr from "exifr";
+
+type ManualActivity = GpxActivity & { id: string };
+type PhotoItem = {
+  id: string;
+  name: string;
+  thumb: string;
+  exifDate: string | null;
+  activityId: string;
+  kept: boolean | null;
+  reason?: string;
+  uploadedUrl?: string;
+  status?: string;
+};
+
+async function fileToDataUrl(file: File, maxDim = 900): Promise<string> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+}
+
+function fullDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
 
 type Activity = {
   strava_activity_id: string;
@@ -128,6 +171,10 @@ export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [manual, setManual] = useState<ManualActivity[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoFiles = useRef(new Map<string, File>());
   const [listOpen, setListOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -210,6 +257,169 @@ export default function Home() {
       setBusy(false);
       setStatus(null);
     }
+  }
+
+  async function onGpxFiles(files: FileList | null) {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      try {
+        const parsed = parseGpx(await file.text());
+        setManual((m) => [...m, { ...parsed, id: crypto.randomUUID() }]);
+      } catch {
+        setMessages((msgs) => [
+          ...msgs,
+          {
+            role: "assistant",
+            content: `Je n’ai pas pu lire le fichier GPX « ${file.name} » (trace introuvable). Vérifiez que c’est bien un .gpx avec des points GPS.`,
+          },
+        ]);
+      }
+    }
+  }
+
+  function knownDates(): { id: string; title: string; date: string }[] {
+    const strava =
+      latestActivitiesRef.current && latestActivities
+        ? latestActivities.activities.map((a) => ({
+            id: a.strava_activity_id,
+            title: a.title,
+            date: a.date,
+          }))
+        : [];
+    return [
+      ...manual.map((a) => ({ id: a.id, title: a.title, date: a.date })),
+      ...strava,
+    ];
+  }
+
+  async function onPhotoFiles(files: FileList | null) {
+    if (!files) return;
+    const known = knownDates();
+    for (const file of Array.from(files)) {
+      const id = crypto.randomUUID();
+      photoFiles.current.set(id, file);
+      let exifDate: string | null = null;
+      try {
+        const exif = (await exifr.parse(file, [
+          "DateTimeOriginal",
+          "CreateDate",
+          "latitude",
+          "longitude",
+        ])) as { DateTimeOriginal?: Date; CreateDate?: Date } | undefined;
+        const d = exif?.DateTimeOriginal ?? exif?.CreateDate;
+        if (d instanceof Date && !Number.isNaN(d.getTime())) {
+          exifDate = d.toISOString().slice(0, 10);
+        }
+      } catch {
+        exifDate = null;
+      }
+      const matched = exifDate ? known.find((k) => k.date === exifDate) : undefined;
+      setPhotos((p) => [
+        ...p,
+        {
+          id,
+          name: file.name,
+          thumb: URL.createObjectURL(file),
+          exifDate,
+          activityId: matched?.id ?? "",
+          kept: null,
+        },
+      ]);
+    }
+  }
+
+  async function analysePhotos() {
+    setPhotoBusy(true);
+    try {
+      const known = knownDates();
+      const groups = new Map<string, PhotoItem[]>();
+      for (const p of photos) {
+        if (!p.activityId) continue;
+        groups.set(p.activityId, [...(groups.get(p.activityId) ?? []), p]);
+      }
+      for (const [activityId, group] of groups) {
+        const title = known.find((k) => k.id === activityId)?.title ?? "Sortie";
+        const images = await Promise.all(
+          group.map(async (p) => ({
+            id: p.id,
+            dataUrl: await fileToDataUrl(photoFiles.current.get(p.id) as File),
+          })),
+        );
+        const res = await fetch("/api/photos/select", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outingTitle: title, images }),
+        });
+        const data = (await res.json()) as {
+          keep?: { id: string; reason: string }[];
+          drop?: string[];
+          error?: string;
+        };
+        if (!res.ok || data.error) throw new Error(data.error ?? "Analyse impossible");
+        const keepMap = new Map((data.keep ?? []).map((k) => [k.id, k.reason]));
+        setPhotos((prev) =>
+          prev.map((p) =>
+            keepMap.has(p.id)
+              ? { ...p, kept: true, reason: keepMap.get(p.id) }
+              : group.some((g) => g.id === p.id)
+                ? { ...p, kept: false }
+                : p,
+          ),
+        );
+      }
+    } catch (err) {
+      setMessages((msgs) => [
+        ...msgs,
+        {
+          role: "assistant",
+          content: `L’analyse des photos a échoué (${err instanceof Error ? err.message : "erreur"}). Vous pouvez quand même créer le livre.`,
+        },
+      ]);
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function processKeptPhotos() {
+    setPhotoBusy(true);
+    try {
+      for (const p of photos.filter((x) => x.kept && !x.uploadedUrl)) {
+        const file = photoFiles.current.get(p.id);
+        if (!file) continue;
+        const res = await fetch("/api/photos/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl: await fullDataUrl(file), fileName: p.name }),
+        });
+        const data = (await res.json()) as { url?: string; error?: string };
+        setPhotos((prev) =>
+          prev.map((x) =>
+            x.id === p.id
+              ? data.url
+                ? { ...x, uploadedUrl: data.url, status: "recadrée + envoyée" }
+                : { ...x, status: data.error ?? "Échec envoi" }
+              : x,
+          ),
+        );
+        if (!res.ok) break;
+      }
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  function createManualBook() {
+    if (manual.length === 0) return;
+    const lines = manual.map((a) => {
+      const urls = photos
+        .filter((p) => p.activityId === a.id && p.uploadedUrl)
+        .map((p) => p.uploadedUrl as string);
+      return `- ${a.title} | date ${a.date} | ${a.distanceKm} km | ${a.elevationGainM} m D+ | ${a.duration || "?"} | sport Randonnée | gps_polyline: ${a.polyline}${urls.length ? ` | photo_urls: ${urls.join(", ")}` : ""}`;
+    });
+    void send(
+      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}`,
+      `Créer le livre avec mes ${manual.length} sortie(s) ajoutée(s) (GPX/photos).`,
+    );
   }
 
   async function toggleMic() {
@@ -585,6 +795,102 @@ export default function Home() {
         )}
         <div ref={bottomRef} />
       </main>
+
+      <section className="files-panel" aria-label="Ajouter GPX et photos">
+        <div className="row" style={{ marginTop: 0 }}>
+          <label className="btn secondary" style={{ cursor: "pointer" }}>
+            Ajouter un GPX
+            <input
+              type="file"
+              accept=".gpx"
+              multiple
+              hidden
+              onChange={(e) => {
+                void onGpxFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <label className="btn secondary" style={{ cursor: "pointer" }}>
+            Ajouter des photos
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                void onPhotoFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {manual.length > 0 && (
+            <button className="btn cta" disabled={busy} onClick={createManualBook}>
+              Créer le livre avec mes sorties ({manual.length})
+            </button>
+          )}
+        </div>
+        {manual.map((a) => (
+          <p key={a.id} style={{ margin: "8px 0 0", fontSize: 13 }}>
+            <strong>{a.title}</strong> · {a.date} · {a.distanceKm} km · {a.elevationGainM} m D+ · trace GPS OK
+            <button
+              className="btn secondary"
+              style={{ marginLeft: 8, minHeight: 32, padding: "4px 10px" }}
+              onClick={() => setManual((m) => m.filter((x) => x.id !== a.id))}
+            >
+              Retirer
+            </button>
+          </p>
+        ))}
+        {photos.length > 0 && (
+          <>
+            <div className="photo-grid">
+              {photos.map((p) => (
+                <figure key={p.id} className="photo-cell">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.thumb} alt={p.name} />
+                  <figcaption>
+                    {p.exifDate ?? "date inconnue"}
+                    {p.kept === true ? " · gardée" : p.kept === false ? " · écartée" : ""}
+                    {p.reason ? ` — ${p.reason}` : ""}
+                    {p.status ? ` · ${p.status}` : ""}
+                    <select
+                      value={p.activityId}
+                      onChange={(e) =>
+                        setPhotos((prev) =>
+                          prev.map((x) =>
+                            x.id === p.id ? { ...x, activityId: e.target.value } : x,
+                          ),
+                        )
+                      }
+                      aria-label="Sortie de cette photo"
+                    >
+                      <option value="">Choisir la sortie…</option>
+                      {knownDates().map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.title} ({k.date})
+                        </option>
+                      ))}
+                    </select>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+            <div className="row">
+              <button className="btn" disabled={photoBusy} onClick={() => void analysePhotos()}>
+                {photoBusy ? "Analyse…" : "Choisir les meilleures photos (IA)"}
+              </button>
+              <button
+                className="btn secondary"
+                disabled={photoBusy || !photos.some((p) => p.kept)}
+                onClick={() => void processKeptPhotos()}
+              >
+                Recadrer (SAM) + envoyer les gardées
+              </button>
+            </div>
+          </>
+        )}
+      </section>
 
       <form
         className="composer"
