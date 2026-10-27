@@ -35,6 +35,43 @@ function config() {
   };
 }
 
+/** Muse Voice Transcribe: WAV (mono, 16-bit PCM, 16/24 kHz) -> transcript text. */
+export async function transcribeAudio(wav: ArrayBuffer): Promise<string> {
+  const { apiKey, baseUrl } = config();
+  const form = new FormData();
+  form.append(
+    "request",
+    new Blob(
+      [
+        JSON.stringify({
+          mode: "PUSH_TO_TALK",
+          model: process.env.VOICE_MODEL ?? "muse-voice-transcribe-1.0",
+          audioEncoding: "WAV",
+        }),
+      ],
+      { type: "application/json" },
+    ),
+  );
+  form.append("audio", new Blob([wav], { type: "audio/wav" }), "audio.wav");
+  const res = await fetch(`${baseUrl}/asr/transcribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Voice API ${res.status}: ${text.slice(0, 400)}`);
+  }
+  const data = (await res.json()) as {
+    transcript?: string;
+    turns?: { transcript?: string }[];
+  };
+  const text =
+    data.transcript?.trim() ||
+    (data.turns ?? []).map((t) => t.transcript ?? "").join(" ").trim();
+  return text;
+}
+
 export async function chatCompletion(
   messages: ChatMessage[],
   tools: FunctionTool[],

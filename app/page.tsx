@@ -21,8 +21,77 @@ type Msg = { role: "user" | "assistant"; content: string; ui?: UiEvent[] };
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "Hi! Tell me what book you want — for example “My summer in the Pyrenees” or “Mes courses de 2025”. I’ll connect your Strava, pick the outings, ask you a couple of questions, and draft the book for you.",
+    "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language.",
 };
+
+const WARMUP_RE =
+  /échauffement|echauffement|warm.?up|cooldown|cool down|retour au calme|récup|recup|recovery|déblocage|deblocage/i;
+
+/** Same-day rule: a race/main outing wins; its warm-up & cool-down start unticked. */
+function suggestedSelection(
+  activities: Activity[],
+): Record<string, boolean> {
+  const byDate = new Map<string, Activity[]>();
+  for (const a of activities) {
+    byDate.set(a.date, [...(byDate.get(a.date) ?? []), a]);
+  }
+  const out: Record<string, boolean> = {};
+  for (const a of activities) {
+    const sameDay = byDate.get(a.date) ?? [];
+    const longest = Math.max(...sameDay.map((x) => x.distance_km ?? 0));
+    const isWarmup =
+      sameDay.length > 1 &&
+      (WARMUP_RE.test(a.title) ||
+        ((a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) < longest * 0.35)) &&
+      (a.distance_km ?? 0) < longest;
+    out[a.strava_activity_id] = !isWarmup;
+  }
+  return out;
+}
+
+function isLikelyWarmup(
+  a: Activity,
+  activities: Activity[],
+): boolean {
+  const sameDay = activities.filter((x) => x.date === a.date);
+  if (sameDay.length < 2) return false;
+  const longest = Math.max(...sameDay.map((x) => x.distance_km ?? 0));
+  return (
+    (WARMUP_RE.test(a.title) ||
+      ((a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) < longest * 0.35)) &&
+    (a.distance_km ?? 0) < longest
+  );
+}
+
+/** Encode mono Float32 samples as a 16 kHz 16-bit PCM WAV (Voice API format). */
+function encodeWav(samples: Float32Array, inputRate: number): ArrayBuffer {
+  const ratio = inputRate / 16000;
+  const outLength = Math.floor(samples.length / ratio);
+  const pcm = new Int16Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const s = Math.max(-1, Math.min(1, samples[Math.floor(i * ratio)]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  const buffer = new ArrayBuffer(44 + pcm.length * 2);
+  const view = new DataView(buffer);
+  const writeStr = (off: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + pcm.length * 2, true);
+  writeStr(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true);
+  view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, "data");
+  view.setUint32(40, pcm.length * 2, true);
+  pcm.forEach((v, i) => view.setInt16(44 + i * 2, v, true));
+  return buffer;
+}
 
 function formatPrice(price: unknown): string | null {
   if (price == null) return null;
@@ -43,7 +112,80 @@ export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const recorderRef = useRef<{
+    ctx: AudioContext;
+    stream: MediaStream;
+    node: ScriptProcessorNode;
+    chunks: Float32Array[];
+  } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  async function toggleMic() {
+    if (recording && recorderRef.current) {
+      const rec = recorderRef.current;
+      recorderRef.current = null;
+      setRecording(false);
+      rec.node.disconnect();
+      rec.stream.getTracks().forEach((t) => t.stop());
+      const total = rec.chunks.reduce((n, c) => n + c.length, 0);
+      const samples = new Float32Array(total);
+      let off = 0;
+      for (const c of rec.chunks) {
+        samples.set(c, off);
+        off += c.length;
+      }
+      const rate = rec.ctx.sampleRate;
+      await rec.ctx.close().catch(() => undefined);
+      if (total === 0) return;
+      setTranscribing(true);
+      try {
+        const form = new FormData();
+        form.append("audio", new Blob([encodeWav(samples, rate)], { type: "audio/wav" }), "audio.wav");
+        const res = await fetch("/api/transcribe", { method: "POST", body: form });
+        const data = (await res.json()) as { text?: string; error?: string };
+        if (!res.ok || data.error) throw new Error(data.error ?? "Transcription failed");
+        if (data.text) {
+          setInput((prev) => (prev ? `${prev} ${data.text}` : data.text ?? ""));
+        }
+      } catch (err) {
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: `Désolé — la transcription a échoué (${err instanceof Error ? err.message : "erreur"}). Vous pouvez écrire votre réponse. / Sorry — transcription failed, please type instead.`,
+          },
+        ]);
+      } finally {
+        setTranscribing(false);
+      }
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+      const node = ctx.createScriptProcessor(4096, 1, 1);
+      const chunks: Float32Array[] = [];
+      node.onaudioprocess = (e) => {
+        chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      source.connect(node);
+      node.connect(ctx.destination);
+      recorderRef.current = { ctx, stream, node, chunks };
+      setRecording(true);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content:
+            "Je n’ai pas accès au micro (autorisation refusée ?). Vous pouvez écrire votre réponse. / Microphone unavailable — please type.",
+        },
+      ]);
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -86,9 +228,7 @@ export default function Home() {
       for (const e of ui) {
         if (e.kind === "connect" && e.connectionId) setConnectionId(e.connectionId);
         if (e.kind === "activities") {
-          setSelected(
-            Object.fromEntries(e.activities.map((a) => [a.strava_activity_id, true])),
-          );
+          setSelected(suggestedSelection(e.activities));
         }
       }
       if (data.toolEvents?.length) {
@@ -179,7 +319,11 @@ export default function Home() {
               if (e.kind === "activities") {
                 return (
                   <div className="card" key={j}>
-                    <h2>Your outings — untick any you don’t want</h2>
+                    <h2>Sorties proposées — décochez / recochez librement</h2>
+                    <p style={{ margin: "0 0 6px", fontSize: 13, color: "#5a6b52" }}>
+                      Proposition de l’agent : la course principale de chaque jour est cochée.
+                      Les échauffements et retours au calme du même jour démarrent décochés — recochez-les si vous les voulez dans le livre.
+                    </p>
                     {e.activities.map((a) => (
                       <label className="check" key={a.strava_activity_id}>
                         <input
@@ -199,6 +343,9 @@ export default function Home() {
                             {a.sport ? ` · ${a.sport}` : ""}
                             {a.distance_km != null ? ` · ${a.distance_km} km` : ""}
                             {a.elevation_gain_m != null ? ` · ${a.elevation_gain_m} m D+` : ""}
+                            {isLikelyWarmup(a, e.activities)
+                              ? " · échauffement probable — décoché par défaut"
+                              : ""}
                           </small>
                         </span>
                       </label>
@@ -259,15 +406,28 @@ export default function Home() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="What book do you want? e.g. My summer in the Pyrenees"
+          placeholder="Parlez ou écrivez… e.g. Mon été dans les Pyrénées"
           aria-label="Your message"
           disabled={busy}
         />
+        <button
+          className="btn secondary"
+          type="button"
+          disabled={busy || transcribing}
+          onClick={() => void toggleMic()}
+          aria-label={recording ? "Arrêter l'enregistrement" : "Parler au micro"}
+        >
+          {transcribing ? "Transcription…" : recording ? "Arrêter" : "Parler"}
+        </button>
         <button className="btn" type="submit" disabled={busy || !input.trim()}>
           Send
         </button>
       </form>
-      <div className="hint">M1: text chat. Photos and voice come in later milestones.</div>
+      <div className="hint">
+        {recording
+          ? "Enregistrement en cours… cliquez Arrêter quand vous avez fini."
+          : "Micro : parlez, la transcription s’écrit dans le champ — relisez, puis Send. Photos : bientôt (M2), dites-le dans la conversation en attendant."}
+      </div>
     </div>
   );
 }
