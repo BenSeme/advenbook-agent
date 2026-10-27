@@ -128,6 +128,7 @@ export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [listOpen, setListOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const latestActivitiesRef = useRef<boolean>(false);
@@ -451,15 +452,41 @@ export default function Home() {
                 );
               }
               if (e.kind === "activities") {
+                const chosenCount = e.activities.filter(
+                  (a) => selected[a.strava_activity_id],
+                ).length;
+                const highlights = e.activities.filter(isHighlight);
                 return (
                   <div className="card" key={j}>
-                    <h2>Sorties proposées — décochez / recochez librement</h2>
-                    <p style={{ margin: "0 0 6px", fontSize: 13, color: "#5a6b52" }}>
-                      Proposition de l’agent : la course principale de chaque jour est cochée.
-                      Les échauffements et retours au calme du même jour démarrent décochés — recochez-les si vous les voulez dans le livre.
-                      Les sorties « À mettre en valeur » (photos, course, beau tracé) sont signalées par un badge.
+                    <h2>Vos sorties pour le livre</h2>
+                    <p style={{ margin: "0 0 6px", fontSize: 14 }}>
+                      <strong>{chosenCount} cochées</strong> sur {e.activities.length}
+                      {highlights.length > 0
+                        ? ` · ${highlights.length} à mettre en valeur`
+                        : ""}
+                      . Course de chaque jour cochée, échauffements décochés — vous pouvez
+                      tout valider tel quel, sans ouvrir la liste.
                     </p>
-                    {e.activities.map((a) => (
+                    {highlights.length > 0 && (
+                      <p style={{ margin: "0 0 6px", fontSize: 13 }}>
+                        {highlights
+                          .slice(0, 3)
+                          .map((a) => a.title)
+                          .join(" · ")}
+                        {highlights.length > 3 ? "…" : ""}
+                      </p>
+                    )}
+                    <button
+                      className="btn secondary"
+                      onClick={() => setListOpen((v) => !v)}
+                      aria-expanded={listOpen}
+                    >
+                      {listOpen
+                        ? "Masquer la liste"
+                        : `Voir / modifier la liste (${e.activities.length})`}
+                    </button>
+                    {listOpen &&
+                      e.activities.map((a) => (
                       <label
                         className={isHighlight(a) ? "check highlight" : "check"}
                         key={a.strava_activity_id}
