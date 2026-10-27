@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/book-link.test.mjs test/highlights.test.mjs test/gpx-crop.test.mjs"
+    "test": "node --test test/book-link.test.mjs test/highlights.test.mjs test/gpx-crop.test.mjs test/i18n.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",

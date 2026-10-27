@@ -2,6 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { activityBadges, isHighlight } from "@/lib/highlights";
+import {
+  t,
+  LANGS,
+  detectLangFromText,
+  fmtDistance,
+  fmtElevation,
+  fmtPrice,
+  type Lang,
+} from "@/lib/i18n";
 import { parseGpx, type GpxActivity } from "@/lib/gpx";
 import exifr from "exifr";
 
@@ -152,20 +161,18 @@ function encodeWav(samples: Float32Array, inputRate: number): ArrayBuffer {
   return buffer;
 }
 
-function formatPrice(price: unknown): string | null {
-  if (price == null) return null;
-  if (typeof price === "number" || typeof price === "string") return String(price);
-  if (typeof price === "object") {
-    const p = price as Record<string, unknown>;
-    const amount = p.amount ?? p.price ?? p.total;
-    const currency = p.currency ?? "€";
-    if (amount != null) return `${amount} ${currency}`;
-  }
-  return null;
+function formatPrice(price: unknown, lang: Lang): string | null {
+  return fmtPrice(price, lang);
 }
 
 export default function Home() {
+  const [lang, setLang] = useState<Lang>("fr");
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
+
+  useEffect(() => {
+    const nav = navigator.language.slice(0, 2) as Lang;
+    if ((LANGS as string[]).includes(nav)) setLang(nav);
+  }, []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -494,6 +501,8 @@ export default function Home() {
   async function send(text: string, display?: string) {
     const clean = text.trim();
     if (!clean || busy) return;
+    const detected = detectLangFromText(clean);
+    if (detected && detected !== lang) setLang(detected);
     // "It's done / c'est fait" with a known connection: read Strava directly.
     if (
       connectionId &&
@@ -597,10 +606,30 @@ export default function Home() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo_advenbook.svg" alt="AdvenBook" />
         </span>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1>AdvenBook Agent</h1>
-          <p>Your Strava outings, turned into a printed book — without the sorting and writing.</p>
+          <p>{t(lang, "subtitle")}</p>
         </div>
+        <select
+          value={lang}
+          onChange={(e) => setLang(e.target.value as Lang)}
+          aria-label="Language"
+          style={{
+            minHeight: 40,
+            borderRadius: 8,
+            border: "1px solid var(--brand-line)",
+            background: "var(--brand-card)",
+            color: "var(--brand-ink)",
+            padding: "6px 8px",
+          }}
+        >
+          <option value="fr">Français</option>
+          <option value="en">English</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="it">Italiano</option>
+          <option value="eu">Euskara</option>
+        </select>
       </header>
 
       <main aria-live="polite">
@@ -619,7 +648,7 @@ export default function Home() {
                 disabled={busy}
                 onClick={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
               >
-                Continuer — lire mes sorties
+                {t(lang, "resumeBtn")}
               </button>
               <button
                 className="btn secondary"
@@ -629,7 +658,7 @@ export default function Home() {
                   setConnectionId("");
                 }}
               >
-                Oublier cette connexion
+                {t(lang, "forgetBtn")}
               </button>
             </div>
           </div>
@@ -649,7 +678,7 @@ export default function Home() {
               if (e.kind === "connect") {
                 return (
                   <div className="card" key={j}>
-                    <h2>Connect your Strava — 3 steps</h2>
+                    <h2>{t(lang, "connectTitle")}</h2>
                     <ol style={{ margin: "0 0 12px", paddingLeft: 20, fontSize: 14, lineHeight: 1.6 }}>
                       <li>Click “Connect Strava” below and authorise on Strava. That page is AdvenBook’s — it will not bring you back here by itself.</li>
                       <li>Come back here: at the top of your browser, click the other tab (« AdvenBook Agent » / localhost) — or close the Strava tab with its ×. This page stays open underneath, nothing is lost.</li>
@@ -657,14 +686,14 @@ export default function Home() {
                     </ol>
                     <div className="row" style={{ marginTop: 0 }}>
                       <a className="btn" href={e.connectUrl} target="_blank" rel="noreferrer">
-                        1. Connect Strava
+                        {t(lang, "connectBtn")}
                       </a>
                       <button
                         className="btn secondary"
                         disabled={busy}
                         onClick={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
                       >
-                        2. I’ve connected — continue
+                        {t(lang, "connectedBtn")}
                       </button>
                     </div>
                     <p style={{ margin: "10px 0 0", fontSize: 12, color: "#5a6b52" }}>
@@ -680,11 +709,11 @@ export default function Home() {
                 const highlights = e.activities.filter(isHighlight);
                 return (
                   <div className="card" key={j}>
-                    <h2>Vos sorties pour le livre</h2>
+                    <h2>{t(lang, "outingsTitle")}</h2>
                     <p style={{ margin: "0 0 6px", fontSize: 14 }}>
-                      <strong>{chosenCount} cochées</strong> sur {e.activities.length}
+                      <strong>{chosenCount} {t(lang, "ticked")}</strong> {t(lang, "on")} {e.activities.length}
                       {highlights.length > 0
-                        ? ` · ${highlights.length} à mettre en valeur`
+                        ? ` · ${highlights.length} ${t(lang, "toHighlight")}`
                         : ""}
                       . Course de chaque jour cochée, échauffements décochés — vous pouvez
                       tout valider tel quel, sans ouvrir la liste.
@@ -704,8 +733,8 @@ export default function Home() {
                       aria-expanded={listOpen}
                     >
                       {listOpen
-                        ? "Masquer la liste"
-                        : `Voir / modifier la liste (${e.activities.length})`}
+                        ? t(lang, "hideList")
+                        : `${t(lang, "showList")} (${e.activities.length})`}
                     </button>
                     {listOpen &&
                       e.activities.map((a) => (
@@ -736,8 +765,8 @@ export default function Home() {
                           <small>
                             {a.date}
                             {a.sport ? ` · ${a.sport}` : ""}
-                            {a.distance_km != null ? ` · ${a.distance_km} km` : ""}
-                            {a.elevation_gain_m != null ? ` · ${a.elevation_gain_m} m D+` : ""}
+                            {a.distance_km != null ? ` · ${fmtDistance(a.distance_km, lang)}` : ""}
+                            {a.elevation_gain_m != null ? ` · ${fmtElevation(a.elevation_gain_m, lang)}` : ""}
                             {isLikelyWarmup(a, e.activities)
                               ? " · échauffement probable — décoché par défaut"
                               : ""}
@@ -751,14 +780,14 @@ export default function Home() {
                         disabled={busy || !latestActivities}
                         onClick={() => confirmSelection(false)}
                       >
-                        Continue with selected
+                        {t(lang, "continueSelected")}
                       </button>
                       <button
                         className="btn secondary"
                         disabled={busy || !latestActivities}
                         onClick={() => confirmSelection(true)}
                       >
-                        Skip questions, create now
+                        {t(lang, "skipCreate")}
                       </button>
                     </div>
                   </div>
@@ -766,13 +795,13 @@ export default function Home() {
               }
               return (
                 <div className="card book" key={j}>
-                  <h2>Your book draft is ready</h2>
+                  <h2>{t(lang, "bookReady")}</h2>
                   <p className="price">
-                    {e.estimatedPages ? `About ${e.estimatedPages} pages. ` : ""}
-                    {formatPrice(e.price)
-                      ? `Estimated price: ${formatPrice(e.price)}. `
+                    {e.estimatedPages ? `~${e.estimatedPages} ${t(lang, "aboutPages")}. ` : ""}
+                    {formatPrice(e.price, lang)
+                      ? `${t(lang, "estPrice")} : ${formatPrice(e.price, lang)}. `
                       : ""}
-                    This is a draft — you order it on advenbook.com, nothing is paid yet.
+                    {t(lang, "draftNote")}
                   </p>
                   <a
                     className="btn cta"
@@ -780,7 +809,7 @@ export default function Home() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Open my book
+                    {t(lang, "openBook")}
                   </a>
                 </div>
               );
@@ -790,7 +819,7 @@ export default function Home() {
         {busy && (
           <div className="status" role="status">
             <span className="spinner" aria-hidden />
-            {status ?? "Working…"}
+            {status ?? t(lang, "working")}
           </div>
         )}
         <div ref={bottomRef} />
@@ -818,13 +847,11 @@ export default function Home() {
         }}
       >
         <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--brand-muted)" }}>
-          Glissez vos fichiers ici, ou touchez les boutons. Sur iPhone, « Ajouter des
-          photos » ouvre directement votre photothèque Apple ; sur Android, la galerie
-          (y compris Google Photos). Aucun compte photo à connecter.
+          {t(lang, "dropHint")}
         </p>
         <div className="row" style={{ marginTop: 0 }}>
           <label className="btn secondary" style={{ cursor: "pointer" }}>
-            Ajouter un GPX
+            {t(lang, "addGpx")}
             <input
               type="file"
               accept=".gpx"
@@ -837,7 +864,7 @@ export default function Home() {
             />
           </label>
           <label className="btn secondary" style={{ cursor: "pointer" }}>
-            Ajouter des photos
+            {t(lang, "addPhotos")}
             <input
               type="file"
               accept="image/*"
@@ -851,19 +878,19 @@ export default function Home() {
           </label>
           {manual.length > 0 && (
             <button className="btn cta" disabled={busy} onClick={createManualBook}>
-              Créer le livre avec mes sorties ({manual.length})
+              {t(lang, "createWithMine")} ({manual.length})
             </button>
           )}
         </div>
         {manual.map((a) => (
           <p key={a.id} style={{ margin: "8px 0 0", fontSize: 13 }}>
-            <strong>{a.title}</strong> · {a.date} · {a.distanceKm} km · {a.elevationGainM} m D+ · trace GPS OK
+            <strong>{a.title}</strong> · {a.date} · {fmtDistance(a.distanceKm, lang)} · {fmtElevation(a.elevationGainM, lang)} · GPS OK
             <button
               className="btn secondary"
               style={{ marginLeft: 8, minHeight: 32, padding: "4px 10px" }}
               onClick={() => setManual((m) => m.filter((x) => x.id !== a.id))}
             >
-              Retirer
+              {t(lang, "remove")}
             </button>
           </p>
         ))}
@@ -903,14 +930,14 @@ export default function Home() {
             </div>
             <div className="row">
               <button className="btn" disabled={photoBusy} onClick={() => void analysePhotos()}>
-                {photoBusy ? "Analyse…" : "Choisir les meilleures photos (IA)"}
+                {t(lang, "analysePhotos")}
               </button>
               <button
                 className="btn secondary"
                 disabled={photoBusy || !photos.some((p) => p.kept)}
                 onClick={() => void processKeptPhotos()}
               >
-                Recadrer (SAM) + envoyer les gardées
+                {t(lang, "cropUpload")}
               </button>
             </div>
           </>
@@ -927,7 +954,7 @@ export default function Home() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Parlez ou écrivez… e.g. Mon été dans les Pyrénées"
+          placeholder={t(lang, "placeholder")}
           aria-label="Your message"
           disabled={busy}
         />
@@ -938,16 +965,16 @@ export default function Home() {
           onClick={() => void toggleMic()}
           aria-label={recording ? "Arrêter l'enregistrement" : "Parler au micro"}
         >
-          {transcribing ? "Transcription…" : recording ? "Arrêter" : "Parler"}
+          {transcribing ? t(lang, "transcribing") : recording ? t(lang, "stop") : t(lang, "speak")}
         </button>
         <button className="btn" type="submit" disabled={busy || !input.trim()}>
-          Send
+          {t(lang, "send")}
         </button>
       </form>
       <div className="hint">
         {recording
-          ? "Enregistrement en cours… cliquez Arrêter quand vous avez fini."
-          : "Micro : parlez, la transcription s’écrit dans le champ — relisez, puis Send. Photos : bientôt (M2), dites-le dans la conversation en attendant."}
+          ? `${t(lang, "speak")}… → ${t(lang, "stop")}`
+          : `${t(lang, "speak")} → ${t(lang, "send")} · GPX / photos ↓`}
       </div>
     </div>
   );
