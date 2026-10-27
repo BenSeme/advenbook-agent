@@ -342,11 +342,15 @@ export default function Home() {
       const known = knownDates();
       const groups = new Map<string, PhotoItem[]>();
       for (const p of photos) {
-        if (!p.activityId) continue;
-        groups.set(p.activityId, [...(groups.get(p.activityId) ?? []), p]);
+        // Free photos (no outing chosen) are analysed too, as their own group.
+        const key = p.activityId || "__free__";
+        groups.set(key, [...(groups.get(key) ?? []), p]);
       }
       for (const [activityId, group] of groups) {
-        const title = known.find((k) => k.id === activityId)?.title ?? "Sortie";
+        const title =
+          activityId === "__free__"
+            ? "Photos libres"
+            : (known.find((k) => k.id === activityId)?.title ?? "Sortie");
         const images = await Promise.all(
           group.map(async (p) => ({
             id: p.id,
@@ -391,7 +395,7 @@ export default function Home() {
   async function processKeptPhotos() {
     setPhotoBusy(true);
     try {
-      for (const p of photos.filter((x) => x.kept && !x.uploadedUrl)) {
+      for (const p of photos.filter((x) => x.kept !== false && !x.uploadedUrl)) {
         const file = photoFiles.current.get(p.id);
         if (!file) continue;
         const res = await fetch("/api/photos/process", {
@@ -424,8 +428,11 @@ export default function Home() {
         .map((p) => p.uploadedUrl as string);
       return `- ${a.title} | date ${a.date} | ${a.distanceKm} km | ${a.elevationGainM} m D+ | ${a.duration || "?"} | sport Randonnée | gps_polyline: ${a.polyline}${urls.length ? ` | photo_urls: ${urls.join(", ")}` : ""}`;
     });
+    const freeUrls = photos
+      .filter((p) => !p.activityId && p.uploadedUrl)
+      .map((p) => p.uploadedUrl as string);
     void send(
-      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}`,
+      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. AVANT de créer, demande-moi en une question à quelle(s) sortie(s) je veux les rattacher, puis mets-les en photo_urls de la/les sortie(s) choisie(s).` : ""}`,
       `Créer le livre avec mes ${manual.length} sortie(s) ajoutée(s) (GPX/photos).`,
     );
   }
@@ -932,7 +939,7 @@ export default function Home() {
                       }
                       aria-label="Sortie de cette photo"
                     >
-                      <option value="">Choisir la sortie…</option>
+                      <option value="">Photo libre — l’agent demandera où la mettre</option>
                       {knownDates().map((k) => (
                         <option key={k.id} value={k.id}>
                           {k.title} ({k.date})
@@ -949,11 +956,25 @@ export default function Home() {
               </button>
               <button
                 className="btn secondary"
-                disabled={photoBusy || !photos.some((p) => p.kept)}
+                disabled={photoBusy || !photos.some((p) => p.kept !== false)}
                 onClick={() => void processKeptPhotos()}
               >
                 {t(lang, "cropUpload")}
               </button>
+              {photos.some((p) => !p.activityId && p.uploadedUrl) && (
+                <button
+                  className="btn secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void send(
+                      `Voici mes photos libres envoyées : ${photos.filter((p) => !p.activityId && p.uploadedUrl).map((p) => p.uploadedUrl).join(", ")}. Demande-moi où je veux les mettre dans le livre, puis rattache-les aux sorties que je choisirai.`,
+                      "Photos libres envoyées — où les mettre ?",
+                    )
+                  }
+                >
+                  Dire à l’agent où mettre les photos libres
+                </button>
+              )}
             </div>
           </>
         )}
