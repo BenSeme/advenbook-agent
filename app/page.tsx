@@ -121,6 +121,7 @@ export default function Home() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const latestActivitiesRef = useRef<boolean>(false);
   const recorderRef = useRef<{
     ctx: AudioContext;
     stream: MediaStream;
@@ -128,6 +129,78 @@ export default function Home() {
     chunks: Float32Array[];
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // The Strava connection_id survives reloads / tab switches.
+  useEffect(() => {
+    const saved = window.localStorage.getItem("ab-connection-id");
+    if (saved) setConnectionId(saved);
+  }, []);
+
+  function rememberConnection(id: string) {
+    setConnectionId(id);
+    window.localStorage.setItem("ab-connection-id", id);
+  }
+
+  /** Mechanical "I have connected" step: read Strava directly, no LLM guessing. */
+  async function fetchActivities(userText?: string) {
+    if (!connectionId || busy) return;
+    const base: Msg[] = userText
+      ? [...messages, { role: "user", content: userText }]
+      : messages;
+    setMessages(base);
+    setBusy(true);
+    setStatus("Lecture de vos sorties Strava…");
+    try {
+      const res = await fetch("/api/strava/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId }),
+      });
+      const data = (await res.json()) as {
+        activities?: Activity[];
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        setMessages([
+          ...base,
+          {
+            role: "assistant",
+            content:
+              data.error ??
+              "La lecture Strava a échoué. Reconnectez-vous puis cliquez Continuer.",
+          },
+        ]);
+        return;
+      }
+      const activities = data.activities ?? [];
+      setSelected(suggestedSelection(activities));
+      setMessages([
+        ...base,
+        {
+          role: "assistant",
+          content:
+            activities.length === 0
+              ? "Connexion bien reçue, mais je ne vois aucune sortie sur cette période. Dites-moi une autre période (par exemple « toutes mes sorties 2025 »), ou vérifiez que Strava est bien connecté."
+              : `Connexion bien reçue — voici vos ${activities.length} sorties. La course principale de chaque jour est cochée, les échauffements sont décochés (recochables). Décochez ce que vous ne voulez pas, puis « Continuer ».`,
+          ui: activities.length
+            ? [{ kind: "activities", activities }]
+            : undefined,
+        },
+      ]);
+    } catch {
+      setMessages([
+        ...base,
+        {
+          role: "assistant",
+          content:
+            "Je n’ai pas pu joindre le serveur pour lire vos sorties. Réessayez dans un instant.",
+        },
+      ]);
+    } finally {
+      setBusy(false);
+      setStatus(null);
+    }
+  }
 
   async function toggleMic() {
     if (recording && recorderRef.current) {
@@ -201,6 +274,18 @@ export default function Home() {
   async function send(text: string) {
     const clean = text.trim();
     if (!clean || busy) return;
+    // "It's done / c'est fait" with a known connection: read Strava directly.
+    if (
+      connectionId &&
+      !latestActivitiesRef.current &&
+      /^(c'?est fait|fait|done|ok|connecté|connecte|déjà connecté|deja connecte|prêt|pret|je me suis connecté)/i.test(
+        clean,
+      )
+    ) {
+      await fetchActivities(clean);
+      setInput("");
+      return;
+    }
     const next: Msg[] = [...messages, { role: "user", content: clean }];
     setMessages(next);
     setInput("");
@@ -233,7 +318,7 @@ export default function Home() {
       }
       const ui = data.ui ?? [];
       for (const e of ui) {
-        if (e.kind === "connect" && e.connectionId) setConnectionId(e.connectionId);
+        if (e.kind === "connect" && e.connectionId) rememberConnection(e.connectionId);
         if (e.kind === "activities") {
           setSelected(suggestedSelection(e.activities));
         }
@@ -261,6 +346,7 @@ export default function Home() {
     .reverse()
     .flatMap((m) => m.ui ?? [])
     .find((e): e is Extract<UiEvent, { kind: "activities" }> => e.kind === "activities");
+  latestActivitiesRef.current = Boolean(latestActivities);
 
   function confirmSelection(skipInterview: boolean) {
     if (!latestActivities) return;
@@ -308,11 +394,7 @@ export default function Home() {
                       <button
                         className="btn secondary"
                         disabled={busy}
-                        onClick={() =>
-                          void send(
-                            "C'est fait, je me suis connecté à Strava. Lis mes sorties maintenant. (Done — I have connected Strava. Read my activities now.)",
-                          )
-                        }
+                        onClick={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
                       >
                         2. I’ve connected — continue
                       </button>

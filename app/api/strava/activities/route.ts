@@ -1,0 +1,50 @@
+import { NextResponse } from "next/server";
+import { callMcpTool } from "@/lib/mcp";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+// Deterministic "I have connected" step: no LLM involved. Calls
+// list_strava_activities with the stored connection_id and returns the list.
+export async function POST(req: Request) {
+  let body: { connectionId?: unknown };
+  try {
+    body = (await req.json()) as { connectionId?: unknown };
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  const connectionId =
+    typeof body.connectionId === "string" ? body.connectionId.trim() : "";
+  if (!connectionId) {
+    return NextResponse.json(
+      {
+        error:
+          "Aucun identifiant de connexion Strava dans cette session. Cliquez d’abord sur « Connect Strava », autorisez, puis revenez ici. / No Strava connection in this session — connect first, then come back.",
+      },
+      { status: 400 },
+    );
+  }
+  try {
+    const result = (await callMcpTool("list_strava_activities", {
+      connection_id: connectionId,
+      limit: 100,
+    })) as { activities?: unknown; error?: string } | string;
+    if (typeof result === "object" && result !== null && "error" in result && result.error) {
+      return NextResponse.json({ error: String(result.error) }, { status: 502 });
+    }
+    const activities =
+      typeof result === "object" && result !== null && Array.isArray(result.activities)
+        ? result.activities
+        : [];
+    return NextResponse.json({ activities });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Strava reading failed.";
+    console.error("list_strava_activities error:", message);
+    return NextResponse.json(
+      {
+        error: `La lecture Strava a échoué (${message}). L’autorisation n’est peut-être pas terminée : refaites « Connect Strava », attendez le message « vous êtes connecté », puis cliquez Continuer. / Strava reading failed — reconnect and try again.`,
+      },
+      { status: 502 },
+    );
+  }
+}
