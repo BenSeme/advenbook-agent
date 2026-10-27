@@ -148,13 +148,31 @@ export default function Home() {
               if (e.kind === "connect") {
                 return (
                   <div className="card" key={j}>
-                    <h2>Connect your Strava</h2>
-                    <p style={{ margin: "0 0 10px", fontSize: 14 }}>
-                      This link is valid for 24 hours. Connect, then come back and tell me “done”.
+                    <h2>Connect your Strava — 3 steps</h2>
+                    <ol style={{ margin: "0 0 12px", paddingLeft: 20, fontSize: 14, lineHeight: 1.6 }}>
+                      <li>Click “Connect Strava” below and authorise on Strava. That page is AdvenBook’s — it will not bring you back here by itself.</li>
+                      <li>Come back to this tab (keep it open).</li>
+                      <li>Click “I’ve connected — continue”. I’ll then read your outings.</li>
+                    </ol>
+                    <div className="row" style={{ marginTop: 0 }}>
+                      <a className="btn" href={e.connectUrl} target="_blank" rel="noreferrer">
+                        1. Connect Strava
+                      </a>
+                      <button
+                        className="btn secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          void send(
+                            "C'est fait, je me suis connecté à Strava. Lis mes sorties maintenant. (Done — I have connected Strava. Read my activities now.)",
+                          )
+                        }
+                      >
+                        2. I’ve connected — continue
+                      </button>
+                    </div>
+                    <p style={{ margin: "10px 0 0", fontSize: 12, color: "#5a6b52" }}>
+                      Link valid 24 hours. If reading fails, the authorisation may not have finished — reconnect, then click continue again.
                     </p>
-                    <a className="btn" href={e.connectUrl} target="_blank" rel="noreferrer">
-                      Connect Strava
-                    </a>
                   </div>
                 );
               }
