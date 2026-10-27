@@ -37,7 +37,7 @@ type Msg = {
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language.",
+    "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre. Pas de Strava ? Dites-le-moi : on partira d’une liste que vous me dictez.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language. No Strava? Just say so — we’ll use a list you dictate.",
 };
 
 const WARMUP_RE =
@@ -383,8 +383,14 @@ export default function Home() {
   return (
     <div className="shell">
       <header>
-        <h1>AdvenBook Agent</h1>
-        <p>Your Strava outings, turned into a printed book — without the sorting and writing.</p>
+        <span className="logo-tile">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo_advenbook.svg" alt="AdvenBook" />
+        </span>
+        <div>
+          <h1>AdvenBook Agent</h1>
+          <p>Your Strava outings, turned into a printed book — without the sorting and writing.</p>
+        </div>
       </header>
 
       <main aria-live="polite">
@@ -420,9 +426,15 @@ export default function Home() {
         )}
         {messages.map((m, i) => (
           <div key={i} style={{ display: "contents" }}>
-            <div className={m.role === "user" ? "msg user" : "msg assistant"}>
-              {m.role === "user" ? (m.display ?? m.content) : m.content}
-            </div>
+            {m.role === "user" ? (
+              <div className="msg user">{m.display ?? m.content}</div>
+            ) : (
+              <div className="msgrow">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="avatar" src="/logo_icone.png" alt="" aria-hidden />
+                <div className="msg assistant">{m.content}</div>
+              </div>
+            )}
             {(m.ui ?? []).map((e, j) => {
               if (e.kind === "connect") {
                 return (
@@ -553,7 +565,7 @@ export default function Home() {
                     This is a draft — you order it on advenbook.com, nothing is paid yet.
                   </p>
                   <a
-                    className="btn"
+                    className="btn cta"
                     href={e.editorUrl ?? e.claimUrl}
                     target="_blank"
                     rel="noreferrer"

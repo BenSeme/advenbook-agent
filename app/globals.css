@@ -1,20 +1,22 @@
-/* AdvenBook brand tokens — replace these values with the official charter
-   (hex colours, fonts, logo) as soon as it is dropped into this repo;
-   every colour below reads from here. */
+/* AdvenBook official brand guide — brand/BRAND.md. Use exactly, invent nothing. */
 :root {
-  --brand-deep: #22391f;
-  --brand-ink: #1c2a1e;
-  --brand-paper: #f7f8f3;
-  --brand-bg: #eef1ea;
-  --brand-line: #d8dfcf;
-  --brand-soft: #b9c8ab;
-  --brand-muted: #5a6b52;
-  --brand-header-sub: #cfe0c2;
-  --brand-accent: #e4572e;
-  --brand-gold: #d9a521;
-  --brand-highlight-bg: #fdf6e3;
-  --font-display: Georgia, "Times New Roman", serif;
-  --font-body: ui-sans-system, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --brand-deep: #1B2D45; /* Bleu Ardoise — header, main buttons, user bubbles */
+  --brand-ink: #2D3748; /* Ardoise Doux — body text */
+  --brand-paper: #F4EDE4; /* Crème Papier — soft panels, book card */
+  --brand-bg: #F8F5F0; /* Pierre Claire — page background */
+  --brand-card: #FFFFFF; /* Blanc Pur — cards, assistant bubbles, inputs */
+  --brand-line: #E2E8F0; /* Gris Pierre Clair — borders */
+  --brand-soft: #E2E8F0;
+  --brand-muted: #94A3B8; /* Gris Pierre — captions, hints */
+  --brand-header-sub: #F8F5F0; /* Pierre Claire on Bleu Ardoise */
+  --brand-accent: #D4956B; /* Cuivre Patiné — highlights, Open my book CTA */
+  --brand-gold: #D4956B;
+  --brand-highlight-bg: #F4EDE4;
+  --brand-success: #3A6B5C; /* Vert Mousse */
+  --brand-dark: #0C1821; /* Nuit Alpine */
+  --brand-error: #EF4444;
+  --font-display: var(--font-playfair), Georgia, serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -26,13 +28,22 @@ body {
 }
 .shell {
   display: flex; flex-direction: column; height: 100dvh;
-  max-width: 760px; margin: 0 auto; background: var(--brand-paper);
+  max-width: 760px; margin: 0 auto; background: var(--brand-bg);
   border-left: 1px solid var(--brand-line); border-right: 1px solid var(--brand-line);
 }
 header {
   padding: 16px 20px 12px; border-bottom: 1px solid var(--brand-line);
-  background: var(--brand-deep); color: #f2f5ec;
+  background: var(--brand-deep); color: var(--brand-header-sub);
+  display: flex; gap: 12px; align-items: center;
 }
+.logo-tile {
+  background: var(--brand-bg); border-radius: 8px; padding: 6px;
+  display: flex; align-items: center; justify-content: center; flex: none;
+}
+.logo-tile img { width: 40px; height: 40px; display: block; }
+.avatar { width: 30px; height: 30px; border-radius: 8px; flex: none; align-self: flex-start; }
+.msgrow { display: flex; gap: 8px; align-items: flex-start; align-self: flex-start; max-width: 96%; }
+.msgrow .msg { max-width: 100%; }
 header h1 {
   margin: 0; font-size: 22px; line-height: 1.15;
   font-family: var(--font-display); font-weight: 600;
@@ -40,35 +51,37 @@ header h1 {
 header p { margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--brand-header-sub); }
 main { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .msg { max-width: 92%; padding: 10px 14px; border-radius: 14px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg.user { align-self: flex-end; background: var(--brand-deep); color: #f2f5ec; border-bottom-right-radius: 4px; }
-.msg.assistant { align-self: flex-start; background: #fff; border: 1px solid var(--brand-line); border-bottom-left-radius: 4px; }
-.msg.error { align-self: flex-start; background: #fdf0ec; border: 1px solid #e8b4a6; color: #7a2e1d; }
+.msg.user { align-self: flex-end; background: var(--brand-deep); color: var(--brand-header-sub); border-bottom-right-radius: 4px; }
+.msg.assistant { align-self: flex-start; background: var(--brand-card); border: 1px solid var(--brand-line); border-bottom-left-radius: 4px; }
+.msg.error { align-self: flex-start; background: var(--brand-card); border: 1px solid var(--brand-error); color: var(--brand-error); }
 .status { align-self: flex-start; font-size: 13px; color: var(--brand-muted); display: flex; gap: 8px; align-items: center; }
 .spinner { width: 14px; height: 14px; border: 2px solid var(--brand-soft); border-top-color: var(--brand-deep); border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-.card { align-self: stretch; background: #fff; border: 1px solid var(--brand-soft); border-radius: 14px; padding: 14px; }
+.card { align-self: stretch; background: var(--brand-card); border: 1px solid var(--brand-line); border-radius: 14px; padding: 14px; }
+.card.book { background: var(--brand-paper); }
 .card h2 { margin: 0 0 8px; font-size: 16px; font-family: var(--font-display); }
 .btn {
-  display: inline-block; background: var(--brand-accent); color: #fff; border: 0; border-radius: 10px;
+  display: inline-block; background: var(--brand-deep); color: var(--brand-header-sub); border: 0; border-radius: 8px;
   padding: 12px 18px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
   min-height: 48px;
 }
-.btn.secondary { background: #fff; color: var(--brand-deep); border: 1px solid var(--brand-deep); }
+.btn.cta { background: var(--brand-accent); color: #FFFFFF; }
+.btn.secondary { background: var(--brand-card); color: var(--brand-deep); border: 1px solid var(--brand-deep); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid #e6ebdd; font-size: 14px; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--brand-line); font-size: 14px; }
 .check input { width: 20px; height: 20px; margin-top: 1px; flex: none; accent-color: var(--brand-deep); }
 .check small { display: block; color: var(--brand-muted); }
 .check.highlight { background: var(--brand-highlight-bg); border: 1px solid var(--brand-gold); border-radius: 10px; padding: 8px; }
 .badges { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-left: 8px; vertical-align: middle; }
-.badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--brand-bg); border: 1px solid var(--brand-soft); color: #33472d; white-space: nowrap; }
-.badge.star { background: var(--brand-gold); border-color: var(--brand-gold); color: #fff; font-weight: 700; }
+.badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--brand-bg); border: 1px solid var(--brand-line); color: var(--brand-ink); white-space: nowrap; }
+.badge.star { background: var(--brand-gold); border-color: var(--brand-gold); color: #FFFFFF; font-weight: 700; }
 .book { text-align: left; }
 .book .price { font-size: 15px; margin: 6px 0 12px; }
-form.composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--brand-line); background: var(--brand-paper); }
+form.composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--brand-line); background: var(--brand-bg); }
 form.composer input {
   flex: 1; min-height: 48px; padding: 10px 14px; font-size: 16px;
-  border: 1px solid var(--brand-soft); border-radius: 10px; background: #fff; color: var(--brand-ink);
+  border: 1px solid var(--brand-line); border-radius: 8px; background: var(--brand-card); color: var(--brand-ink);
 }
-.hint { padding: 0 16px 10px; font-size: 12px; color: var(--brand-muted); background: var(--brand-paper); }
+.hint { padding: 0 16px 10px; font-size: 12px; color: var(--brand-muted); background: var(--brand-bg); }

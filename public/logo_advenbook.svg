@@ -1,0 +1,22 @@
+<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <path id="mountain" d="M 50 12 L 20 65 Q 35 65 50 78 Q 65 65 80 65 Z"/>
+    <clipPath id="mountain-clip">
+      <use href="#mountain"/>
+    </clipPath>
+  </defs>
+
+  <!-- White Book Pages -->
+  <path d="M 25 40 L 12 72 Q 30 72 50 86 Q 70 72 88 72 L 75 40 Z" fill="#FFFFFF"/>
+
+  <!-- Thick Dark Book Outline -->
+  <path d="M 38 40 L 25 40 L 12 72 Q 30 72 50 86 Q 70 72 88 72 L 75 40 L 62 40" fill="none" stroke="#0F172A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Mountain -->
+  <use href="#mountain" fill="#0F172A"/>
+
+  <!-- Snow Cap (Clipped) -->
+  <g clip-path="url(#mountain-clip)">
+    <path d="M 0 0 L 100 0 L 100 40 L 58 28 L 50 38 L 42 28 L 0 40 Z" fill="#FFFFFF"/>
+  </g>
+</svg>
