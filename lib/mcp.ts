@@ -18,8 +18,14 @@ async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
   }
 }
 
+let toolCache: { at: number; tools: FunctionTool[] } | null = null;
+const TOOL_CACHE_MS = 10 * 60 * 1000;
+
 export async function listMcpTools(): Promise<FunctionTool[]> {
-  return withClient(async (client) => {
+  if (toolCache && Date.now() - toolCache.at < TOOL_CACHE_MS) {
+    return toolCache.tools;
+  }
+  const tools = await withClient(async (client) => {
     const { tools } = await client.listTools();
     return tools.map((t) => ({
       type: "function" as const,
@@ -33,6 +39,8 @@ export async function listMcpTools(): Promise<FunctionTool[]> {
       },
     }));
   });
+  toolCache = { at: Date.now(), tools };
+  return tools;
 }
 
 /** Executes one MCP tool and returns its parsed JSON payload (or raw text). */

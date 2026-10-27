@@ -176,6 +176,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [manual, setManual] = useState<ManualActivity[]>([]);
@@ -529,7 +530,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
-          context: connectionId ? { connectionId } : undefined,
+          context: {
+            ...(connectionId ? { connectionId } : {}),
+            ...(confirmedIds.length ? { confirmedIds } : {}),
+          },
         }),
       });
       const data = (await res.json()) as {
@@ -552,7 +556,11 @@ export default function Home() {
       for (const e of ui) {
         if (e.kind === "connect" && e.connectionId) rememberConnection(e.connectionId);
         if (e.kind === "activities") {
-          setSelected(suggestedSelection(e.activities));
+          // After a confirmation the selection is locked — a re-list from
+          // the model must never silently re-tick other outings.
+          setSelected((prev) =>
+            confirmedIds.length > 0 ? prev : suggestedSelection(e.activities),
+          );
         }
       }
       if (data.toolEvents?.length) {
@@ -585,7 +593,9 @@ export default function Home() {
     const chosen = latestActivities.activities.filter(
       (a) => selected[a.strava_activity_id],
     );
-    if (chosen.length === 0) return;
+    if (chosen.length === 0 || chosen.length > 50) return;
+    // Locked from here: the server will refuse any outing outside this list.
+    setConfirmedIds(chosen.map((a) => a.strava_activity_id));
     const list = chosen
       .map((a) => `${a.title} (${a.date}, id ${a.strava_activity_id})`)
       .join("; ");
@@ -774,17 +784,22 @@ export default function Home() {
                         </span>
                       </label>
                     ))}
+                    {chosenCount > 50 && (
+                      <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--brand-error)" }}>
+                        {chosenCount} / 50 max — AdvenBook accepte au maximum 50 sorties par livre. Décochez-en {chosenCount - 50}.
+                      </p>
+                    )}
                     <div className="row">
                       <button
                         className="btn"
-                        disabled={busy || !latestActivities}
+                        disabled={busy || !latestActivities || chosenCount > 50}
                         onClick={() => confirmSelection(false)}
                       >
                         {t(lang, "continueSelected")}
                       </button>
                       <button
                         className="btn secondary"
-                        disabled={busy || !latestActivities}
+                        disabled={busy || !latestActivities || chosenCount > 50}
                         onClick={() => confirmSelection(true)}
                       >
                         {t(lang, "skipCreate")}

@@ -7,6 +7,7 @@ import {
   stripAdvenBookUrls,
 } from "./book-link";
 import { del } from "@vercel/blob";
+import { filterToConfirmed } from "./selection";
 
 /** After a successful book creation AdvenBook has copied the photos, so
  *  our uploaded copies can go. On failure they are kept for a retry. */
@@ -84,7 +85,7 @@ Design intelligence — you are the art director, not a form: from the outing da
 Flow you must follow:
 0. No Strava? If the user has no Strava account (or refuses to connect), do NOT insist: switch to their typed list — ask them to type or dictate their outings (title, date, distance, elevation, duration, sport), then build the book with data_source "typed_list". (GPX files and photo drops arrive in a later milestone; say so in one line if asked.)
 1. Ask what book they want only if totally unclear. If the user expresses any book intent, do NOT ask clarifying questions first (no title/date confirmation): call connect_strava immediately in that same turn. In your reply, in the user's language, say clearly: authorise on the Strava/AdvenBook page, then COME BACK to this tab and click "I've connected — continue" (or say "done"). That page does not return here automatically. Wait until the user confirms they connected.
-3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. First, open with the 2-3 outings most worth showing off ("à mettre en valeur") using the list fields: many photos (photos count), is_race, has_route with big elevation, longest distance — say why each stands out (e.g. "UTMB: course officielle, 34 photos, énorme dénivelé"). Keep this reply SHORT (a few lines max): the checklist card already shows the details, and long text above it forces endless scrolling. The user confirms/edits the selection in a checklist.
+3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. First, open with the 2-3 outings most worth showing off ("à mettre en valeur") using the list fields: many photos (photos count), is_race, has_route with big elevation, longest distance — say why each stands out (e.g. "UTMB: course officielle, 34 photos, énorme dénivelé"). Keep this reply SHORT (a few lines max): the checklist card already shows the details, and long text above it forces endless scrolling. The user confirms/edits the selection in a checklist. After the user confirms a selection, NEVER call list_strava_activities again and NEVER add, re-add or swap outings: the confirmed list is final, and the book must contain exactly those outings — the server also enforces this mechanically. Note AdvenBook accepts at most 50 activities per book: if the user wants more, say so and ask which 50 to keep.
 4. Interview (OPTIONAL, not the goal — the goal is the book draft): offer it, and if the user wants stories, for each chosen outing ask 1-2 short warm questions (who was there, a highlight, how they felt), one outing at a time, then write a 2-4 sentence first-person story in the user's own words. NEVER invent facts. If the user skips, or says "create directly / crée directement", use empty stories and go straight to creation.
 Photos: if the user mentions adding photos in the conversation, answer that photos already on Strava are added automatically by AdvenBook, and that dropping extra phone photos here arrives in the next milestone — do not claim you received photos you cannot see, and continue creating the book without them unless the user insists on waiting.
 4b. Before creating (unless the user said "create directly"), ask ONCE, in one brief message in the user's language — never an interrogation, and never block creation: (a) Format: premium (hardcover), softcover, or carnet (spiral) — call get_book_price first and quote real prices, never invent one; pass the chosen value as format (omit if they don't care). (b) Route map on each outing: yes/no (default yes); if no, omit gps_polyline everywhere. (c) Cover: by default the first photo; ask only if they want another outing's photo in front. Book colour: there is NO colour setting you can pass — if the user asks about colour, say in one line that the cover colour is picked on the book page right after creation (the editor the "Open my book" button opens), and continue.
@@ -127,7 +128,7 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
 
 export async function runAgent(
   history: { role: "user" | "assistant"; content: string }[],
-  context?: { connectionId?: string },
+  context?: { connectionId?: string; confirmedIds?: string[] },
 ): Promise<{ reply: string; ui: UiEvent[]; toolEvents: ToolEvent[] }> {
   const tools = await listMcpTools();
   const ui: UiEvent[] = [];
@@ -170,6 +171,15 @@ export async function runAgent(
       if (name === "create_adventure_book") {
         // Deterministic fixes the model keeps missing:
         if (french) args.language = french;
+        if (Array.isArray(args.activities)) {
+          const before = args.activities.length;
+          args.activities = filterToConfirmed(args.activities, context?.confirmedIds);
+          if (args.activities.length !== before) {
+            console.log(
+              `confirmed-selection filter: ${before} -> ${args.activities.length} activities`,
+            );
+          }
+        }
         const noMap = /\b(sans carte|pas de carte|no maps?|without maps?)\b/i.test(
           history.map((m) => m.content).join(" "),
         );

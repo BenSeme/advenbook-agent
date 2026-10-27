@@ -7,7 +7,10 @@ export const maxDuration = 60;
 type Incoming = { role?: unknown; content?: unknown };
 
 export async function POST(req: Request) {
-  let body: { messages?: Incoming[]; context?: { connectionId?: unknown } };
+  let body: {
+    messages?: Incoming[];
+    context?: { connectionId?: unknown; confirmedIds?: unknown };
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -35,8 +38,14 @@ export async function POST(req: Request) {
       ? body.context.connectionId.slice(0, 200)
       : undefined;
 
+  const confirmedIds = Array.isArray(body.context?.confirmedIds)
+    ? body.context.confirmedIds
+        .filter((x): x is string => typeof x === "string")
+        .slice(0, 200)
+    : undefined;
+
   try {
-    const result = await runAgent(history, { connectionId });
+    const result = await runAgent(history, { connectionId, confirmedIds });
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Something went wrong.";
