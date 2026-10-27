@@ -384,7 +384,7 @@ export default function Home() {
                     <h2>Connect your Strava — 3 steps</h2>
                     <ol style={{ margin: "0 0 12px", paddingLeft: 20, fontSize: 14, lineHeight: 1.6 }}>
                       <li>Click “Connect Strava” below and authorise on Strava. That page is AdvenBook’s — it will not bring you back here by itself.</li>
-                      <li>Come back to this tab (keep it open).</li>
+                      <li>Come back here: at the top of your browser, click the other tab (« AdvenBook Agent » / localhost) — or close the Strava tab with its ×. This page stays open underneath, nothing is lost.</li>
                       <li>Click “I’ve connected — continue”. I’ll then read your outings.</li>
                     </ol>
                     <div className="row" style={{ marginTop: 0 }}>
