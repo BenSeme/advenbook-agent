@@ -172,13 +172,16 @@ export async function runAgent(
         // Deterministic fixes the model keeps missing:
         if (french) args.language = french;
         if (Array.isArray(args.activities)) {
-          const before = args.activities.length;
-          args.activities = filterToConfirmed(args.activities, context?.confirmedIds);
-          if (args.activities.length !== before) {
+          const filtered = filterToConfirmed(
+            args.activities,
+            context?.confirmedIds,
+          );
+          if (filtered.length !== args.activities.length) {
             console.log(
-              `confirmed-selection filter: ${before} -> ${args.activities.length} activities`,
+              `confirmed-selection filter: ${args.activities.length} -> ${filtered.length} activities`,
             );
           }
+          args.activities = filtered;
         }
         const noMap = /\b(sans carte|pas de carte|no maps?|without maps?)\b/i.test(
           history.map((m) => m.content).join(" "),
