@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { editorUrlFromClaim, rewritePreviewLinks } from "../lib/book-link.ts";
+import {
+  editorUrlFromClaim,
+  rewritePreviewLinks,
+  stripAdvenBookUrls,
+} from "../lib/book-link.ts";
 
 test("preview claim link becomes the real editor (creer) link", () => {
   const claim =
@@ -18,6 +22,12 @@ test("preview urls inside agent text are rewritten to creer", () => {
     rewritePreviewLinks(text),
     "Voici : https://www.advenbook.com/fr/my-book/creer?bookId=B1 fin",
   );
+});
+
+test("raw advenbook urls are stripped from agent text", () => {
+  const text =
+    "Cliquez ici : https://www.advenbook.com/fr/strava/ai-connect?c=ABC puis revenez.";
+  assert.equal(stripAdvenBookUrls(text), "Cliquez ici : puis revenez.");
 });
 
 test("non-preview links and junk return null", () => {

@@ -1,7 +1,11 @@
 // M1 agent loop: Muse Spark + AdvenBook MCP tools, server-side only.
 import { chatCompletion, type ChatMessage } from "./models";
 import { callMcpTool, listMcpTools } from "./mcp";
-import { editorUrlFromClaim, rewritePreviewLinks } from "./book-link";
+import {
+  editorUrlFromClaim,
+  rewritePreviewLinks,
+  stripAdvenBookUrls,
+} from "./book-link";
 
 const FRENCH_MARKERS =
   /\b(je|tu|vous|mon|mes|les|des|une|est|fait|livre|sorties|avec|dans|pour|merci|bonjour|crée|cree|été|ete|mes)\b/gi;
@@ -117,11 +121,11 @@ export async function runAgent(
     messages.push(message);
     const calls = message.tool_calls ?? [];
     if (calls.length === 0) {
-      return {
-        reply: rewritePreviewLinks(message.content?.trim() || "…"),
-        ui,
-        toolEvents,
-      };
+      let reply = rewritePreviewLinks(message.content?.trim() || "…");
+      // Buttons carry the links; bare URLs in text cause copy-paste into
+      // the address bar (replaces this page, lands on /preview).
+      if (ui.length > 0) reply = stripAdvenBookUrls(reply) || reply;
+      return { reply, ui, toolEvents };
     }
     for (const call of calls) {
       const name = call.function.name;

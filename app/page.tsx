@@ -509,26 +509,14 @@ export default function Home() {
                       : ""}
                     This is a draft — you order it on advenbook.com, nothing is paid yet.
                   </p>
-                  <div className="row" style={{ marginTop: 0 }}>
-                    <a
-                      className="btn"
-                      href={e.editorUrl ?? e.claimUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open my book
-                    </a>
-                    {e.editorUrl && (
-                      <a
-                        className="btn secondary"
-                        href={e.claimUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Lien claim / aperçu simple
-                      </a>
-                    )}
-                  </div>
+                  <a
+                    className="btn"
+                    href={e.editorUrl ?? e.claimUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open my book
+                  </a>
                 </div>
               );
             })}

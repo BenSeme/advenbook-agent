@@ -11,6 +11,21 @@ export function rewritePreviewLinks(text: string): string {
   );
 }
 
+/**
+ * Remove raw AdvenBook connect/preview URLs from agent text. The buttons
+ * carry those links; a bare URL invites copy-paste into the address bar,
+ * which replaces the agent page and lands on /preview.
+ */
+export function stripAdvenBookUrls(text: string): string {
+  return text
+    .replace(/https?:\/\/[^\s)"']*\/strava\/ai-connect\?[^\s)"']*/g, "")
+    .replace(/https?:\/\/[^\s)"']*\/my-book\/(preview|creer)\?[^\s)"']*/g, "")
+    .replace(/ {2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function editorUrlFromClaim(claimUrl: string): string | null {
   let url: URL;
   try {
