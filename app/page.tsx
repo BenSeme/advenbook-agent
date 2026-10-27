@@ -372,6 +372,36 @@ export default function Home() {
       </header>
 
       <main aria-live="polite">
+        {connectionId && !latestActivities && (
+          <div className="card">
+            <h2>Strava : connexion détectée sur cet appareil</h2>
+            <p style={{ margin: "0 0 10px", fontSize: 14 }}>
+              Si vous avez déjà autorisé Strava sur la page AdvenBook (même si elle a
+              remplacé cette page), cliquez Continuer : je lis vos sorties directement.
+              Sinon, redemandez votre livre dans la conversation pour obtenir un lien
+              de connexion.
+            </p>
+            <div className="row" style={{ marginTop: 0 }}>
+              <button
+                className="btn"
+                disabled={busy}
+                onClick={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
+              >
+                Continuer — lire mes sorties
+              </button>
+              <button
+                className="btn secondary"
+                disabled={busy}
+                onClick={() => {
+                  window.localStorage.removeItem("ab-connection-id");
+                  setConnectionId("");
+                }}
+              >
+                Oublier cette connexion
+              </button>
+            </div>
+          </div>
+        )}
         {messages.map((m, i) => (
           <div key={i} style={{ display: "contents" }}>
             <div className={m.role === "user" ? "msg user" : "msg assistant"}>
