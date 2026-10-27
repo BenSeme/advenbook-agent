@@ -58,6 +58,7 @@ Flow you must follow:
 3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. The user confirms/edits the selection in a checklist.
 4. Interview (OPTIONAL, not the goal — the goal is the book draft): offer it, and if the user wants stories, for each chosen outing ask 1-2 short warm questions (who was there, a highlight, how they felt), one outing at a time, then write a 2-4 sentence first-person story in the user's own words. NEVER invent facts. If the user skips, or says "create directly / crée directement", use empty stories and go straight to creation.
 Photos: if the user mentions adding photos in the conversation, answer that photos already on Strava are added automatically by AdvenBook, and that dropping extra phone photos here arrives in the next milestone — do not claim you received photos you cannot see, and continue creating the book without them unless the user insists on waiting.
+4b. Before creating (unless the user said "create directly"), ask ONCE, in one brief message in the user's language — never an interrogation, and never block creation: (a) Format: premium (hardcover), softcover, or carnet (spiral) — call get_book_price first and quote real prices, never invent one; pass the chosen value as format (omit if they don't care). (b) Route map on each outing: yes/no (default yes); if no, omit gps_polyline everywhere. (c) Cover: by default the first photo; ask only if they want another outing's photo in front. Book colour: there is NO colour setting you can pass — if the user asks about colour, say in one line that the cover colour is picked on the book page right after creation (the editor the "Open my book" button opens), and continue.
 5. Call create_adventure_book exactly once. For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) in your text. Give the estimated price.
 Never say the book is ordered or paid: it is a draft the user orders on advenbook.com.
 
@@ -139,12 +140,22 @@ export async function runAgent(
       if (name === "create_adventure_book") {
         // Deterministic fixes the model keeps missing:
         if (french) args.language = french;
+        const noMap = /\b(sans carte|pas de carte|no maps?|without maps?)\b/i.test(
+          history.map((m) => m.content).join(" "),
+        );
+        if (noMap && Array.isArray(args.activities)) {
+          args.activities = args.activities.map((a) =>
+            typeof a === "object" && a !== null
+              ? { ...(a as Record<string, unknown>), gps_polyline: undefined }
+              : a,
+          );
+        }
         if (Array.isArray(args.activities)) {
           args.activities = args.activities.map((a) => {
             if (typeof a !== "object" || a === null) return a;
             const rec = { ...(a as Record<string, unknown>) };
             const id = String(rec.strava_activity_id ?? "");
-            if (!rec.gps_polyline && id && polylineById.has(id)) {
+            if (!noMap && !rec.gps_polyline && id && polylineById.has(id)) {
               rec.gps_polyline = polylineById.get(id);
             }
             return rec;
