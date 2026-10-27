@@ -796,7 +796,32 @@ export default function Home() {
         <div ref={bottomRef} />
       </main>
 
-      <section className="files-panel" aria-label="Ajouter GPX et photos">
+      <section
+        className="files-panel"
+        aria-label="Ajouter GPX et photos"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const files = Array.from(e.dataTransfer.files);
+          const gpx = files.filter((f) => f.name.toLowerCase().endsWith(".gpx"));
+          const imgs = files.filter((f) => f.type.startsWith("image/"));
+          if (gpx.length) {
+            const dt = new DataTransfer();
+            gpx.forEach((f) => dt.items.add(f));
+            void onGpxFiles(dt.files);
+          }
+          if (imgs.length) {
+            const dt = new DataTransfer();
+            imgs.forEach((f) => dt.items.add(f));
+            void onPhotoFiles(dt.files);
+          }
+        }}
+      >
+        <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--brand-muted)" }}>
+          Glissez vos fichiers ici, ou touchez les boutons. Sur iPhone, « Ajouter des
+          photos » ouvre directement votre photothèque Apple ; sur Android, la galerie
+          (y compris Google Photos). Aucun compte photo à connecter.
+        </p>
         <div className="row" style={{ marginTop: 0 }}>
           <label className="btn secondary" style={{ cursor: "pointer" }}>
             Ajouter un GPX
