@@ -3,6 +3,14 @@
 // link: same origin + language, bookId only (the claim token is not an
 // editor parameter; the book is saved in the user's AdvenBook account).
 
+/** Replace any /my-book/preview claim URL in text with the creer editor URL. */
+export function rewritePreviewLinks(text: string): string {
+  return text.replace(
+    /https?:\/\/[^\s)"']*\/my-book\/preview\?[^\s)"']*/g,
+    (match) => editorUrlFromClaim(match) ?? match,
+  );
+}
+
 export function editorUrlFromClaim(claimUrl: string): string | null {
   let url: URL;
   try {

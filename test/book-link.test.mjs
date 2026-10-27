@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { editorUrlFromClaim } from "../lib/book-link.ts";
+import { editorUrlFromClaim, rewritePreviewLinks } from "../lib/book-link.ts";
 
 test("preview claim link becomes the real editor (creer) link", () => {
   const claim =
@@ -8,6 +8,15 @@ test("preview claim link becomes the real editor (creer) link", () => {
   assert.equal(
     editorUrlFromClaim(claim),
     "https://www.advenbook.com/fr/my-book/creer?bookId=BOOK123",
+  );
+});
+
+test("preview urls inside agent text are rewritten to creer", () => {
+  const text =
+    "Voici : https://www.advenbook.com/fr/my-book/preview?bookId=B1&claim=SECRET fin";
+  assert.equal(
+    rewritePreviewLinks(text),
+    "Voici : https://www.advenbook.com/fr/my-book/creer?bookId=B1 fin",
   );
 });
 

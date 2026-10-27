@@ -23,7 +23,12 @@ type UiEvent =
       price?: unknown;
     };
 
-type Msg = { role: "user" | "assistant"; content: string; ui?: UiEvent[] };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  display?: string;
+  ui?: UiEvent[];
+};
 
 const GREETING: Msg = {
   role: "assistant",
@@ -271,7 +276,7 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
-  async function send(text: string) {
+  async function send(text: string, display?: string) {
     const clean = text.trim();
     if (!clean || busy) return;
     // "It's done / c'est fait" with a known connection: read Strava directly.
@@ -286,7 +291,10 @@ export default function Home() {
       setInput("");
       return;
     }
-    const next: Msg[] = [...messages, { role: "user", content: clean }];
+    const next: Msg[] = [
+      ...messages,
+      { role: "user", content: clean, display },
+    ];
     setMessages(next);
     setInput("");
     setBusy(true);
@@ -361,6 +369,9 @@ export default function Home() {
       skipInterview
         ? `I confirm these outings: ${list}. Skip the questions and create the book now, with no stories.`
         : `I confirm these outings: ${list}. Ask me your questions, one outing at a time.`,
+      skipInterview
+        ? `Création directe demandée (${chosen.length} sorties, sans histoires).`
+        : `Sélection confirmée (${chosen.length} sorties).`,
     );
   }
 
@@ -405,7 +416,7 @@ export default function Home() {
         {messages.map((m, i) => (
           <div key={i} style={{ display: "contents" }}>
             <div className={m.role === "user" ? "msg user" : "msg assistant"}>
-              {m.content}
+              {m.role === "user" ? (m.display ?? m.content) : m.content}
             </div>
             {(m.ui ?? []).map((e, j) => {
               if (e.kind === "connect") {

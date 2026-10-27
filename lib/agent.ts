@@ -1,7 +1,19 @@
 // M1 agent loop: Muse Spark + AdvenBook MCP tools, server-side only.
 import { chatCompletion, type ChatMessage } from "./models";
 import { callMcpTool, listMcpTools } from "./mcp";
-import { editorUrlFromClaim } from "./book-link";
+import { editorUrlFromClaim, rewritePreviewLinks } from "./book-link";
+
+const FRENCH_MARKERS =
+  /\b(je|tu|vous|mon|mes|les|des|une|est|fait|livre|sorties|avec|dans|pour|merci|bonjour|crée|cree|été|ete|mes)\b/gi;
+
+/** Crude but deterministic: 'fr' when the user writes French, else null. */
+export function detectFrench(
+  history: { content: string }[],
+): "fr" | null {
+  const userText = history.map((m) => m.content).join(" ");
+  const hits = userText.match(FRENCH_MARKERS)?.length ?? 0;
+  return hits >= 2 ? "fr" : null;
+}
 
 export type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
@@ -42,7 +54,7 @@ Flow you must follow:
 3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. The user confirms/edits the selection in a checklist.
 4. Interview (OPTIONAL, not the goal — the goal is the book draft): offer it, and if the user wants stories, for each chosen outing ask 1-2 short warm questions (who was there, a highlight, how they felt), one outing at a time, then write a 2-4 sentence first-person story in the user's own words. NEVER invent facts. If the user skips, or says "create directly / crée directement", use empty stories and go straight to creation.
 Photos: if the user mentions adding photos in the conversation, answer that photos already on Strava are added automatically by AdvenBook, and that dropping extra phone photos here arrives in the next milestone — do not claim you received photos you cannot see, and continue creating the book without them unless the user insists on waiting.
-5. Call create_adventure_book exactly once. For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then present the claimUrl as the "Open my book" link with the estimated price.
+5. Call create_adventure_book exactly once. For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) in your text. Give the estimated price.
 Never say the book is ordered or paid: it is a draft the user orders on advenbook.com.
 
 Language: reply in the user's language (English by default, French if they write in French). Be warm, brief, and concrete. If a tool errors (not connected, expired link, no activities), say what happened and what to do next.`;
@@ -85,6 +97,8 @@ export async function runAgent(
   const tools = await listMcpTools();
   const ui: UiEvent[] = [];
   const toolEvents: ToolEvent[] = [];
+  const polylineById = new Map<string, string>();
+  const french = detectFrench(history);
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...(context?.connectionId
@@ -103,7 +117,11 @@ export async function runAgent(
     messages.push(message);
     const calls = message.tool_calls ?? [];
     if (calls.length === 0) {
-      return { reply: message.content?.trim() || "…", ui, toolEvents };
+      return {
+        reply: rewritePreviewLinks(message.content?.trim() || "…"),
+        ui,
+        toolEvents,
+      };
     }
     for (const call of calls) {
       const name = call.function.name;
@@ -115,6 +133,19 @@ export async function runAgent(
         args = {};
       }
       if (name === "create_adventure_book") {
+        // Deterministic fixes the model keeps missing:
+        if (french) args.language = french;
+        if (Array.isArray(args.activities)) {
+          args.activities = args.activities.map((a) => {
+            if (typeof a !== "object" || a === null) return a;
+            const rec = { ...(a as Record<string, unknown>) };
+            const id = String(rec.strava_activity_id ?? "");
+            if (!rec.gps_polyline && id && polylineById.has(id)) {
+              rec.gps_polyline = polylineById.get(id);
+            }
+            return rec;
+          });
+        }
         const acts = Array.isArray(args.activities) ? args.activities : [];
         console.log(
           "create_adventure_book args:",
@@ -142,6 +173,19 @@ export async function runAgent(
       try {
         result = await callMcpTool(name, args);
         extractUi(name, result, ui);
+        if (name === "list_strava_activities") {
+          const acts = asRecord(result).activities;
+          if (Array.isArray(acts)) {
+            for (const a of acts) {
+              const rec = asRecord(a);
+              const poly =
+                rec.gps_polyline ?? rec.polyline ?? rec.summary_polyline;
+              if (rec.strava_activity_id && typeof poly === "string" && poly) {
+                polylineById.set(String(rec.strava_activity_id), poly);
+              }
+            }
+          }
+        }
       } catch (err) {
         result = {
           error: err instanceof Error ? err.message : "Tool call failed.",
