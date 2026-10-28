@@ -64,7 +64,11 @@ export async function POST(req: Request) {
   }
   let body: {
     messages?: Incoming[];
-    context?: { connectionId?: unknown; confirmedIds?: unknown };
+    context?: {
+      connectionId?: unknown;
+      confirmedIds?: unknown;
+      coverPhotoUrl?: unknown;
+    };
     turnstileToken?: unknown;
   };
   try {
@@ -89,6 +93,12 @@ export async function POST(req: Request) {
   const connectionId =
     typeof body.context?.connectionId === "string" && body.context.connectionId
       ? body.context.connectionId.slice(0, 200)
+      : undefined;
+
+  const coverPhotoUrl =
+    typeof body.context?.coverPhotoUrl === "string" &&
+    body.context.coverPhotoUrl.startsWith("https://")
+      ? body.context.coverPhotoUrl.slice(0, 1000)
       : undefined;
 
   const confirmedIds = Array.isArray(body.context?.confirmedIds)
@@ -125,7 +135,7 @@ export async function POST(req: Request) {
 
   try {
     const result = await withVisitorContext(visitor.id, () =>
-      runAgent(history, { connectionId, confirmedIds }),
+      runAgent(history, { connectionId, confirmedIds, coverPhotoUrl }),
     );
     countMetric("chat_turn");
     const books = result.ui.filter((e) => e.kind === "book").length;

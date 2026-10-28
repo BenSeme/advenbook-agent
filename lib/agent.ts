@@ -138,7 +138,11 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
 
 export async function runAgent(
   history: { role: "user" | "assistant"; content: string }[],
-  context?: { connectionId?: string; confirmedIds?: string[] },
+  context?: {
+    connectionId?: string;
+    confirmedIds?: string[];
+    coverPhotoUrl?: string;
+  },
 ): Promise<{
   reply: string;
   ui: UiEvent[];
@@ -162,6 +166,14 @@ export async function runAgent(
           {
             role: "system",
             content: `Known state from earlier in this session: strava_connection_id = ${context.connectionId}. Reuse it; do not ask the user for it.`,
+          } as ChatMessage,
+        ]
+      : []),
+    ...(context?.coverPhotoUrl
+      ? [
+          {
+            role: "system",
+            content: `The user picked this cover photo (they tapped it on the cover-choice card): ${context.coverPhotoUrl}. At book creation you MUST pass it as cover_photo_url. The server also enforces it.`,
           } as ChatMessage,
         ]
       : []),
@@ -191,6 +203,7 @@ export async function runAgent(
       if (name === "create_adventure_book") {
         // Deterministic fixes the model keeps missing:
         if (french) args.language = french;
+        if (context?.coverPhotoUrl) args.cover_photo_url = context.coverPhotoUrl;
         if (Array.isArray(args.activities)) {
           const filtered = filterToConfirmed(
             args.activities,

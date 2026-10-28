@@ -8,6 +8,47 @@ import type { Activity, UiEvent } from "@/lib/chat-types";
 type ConnectEvent = Extract<UiEvent, { kind: "connect" }>;
 type ActivitiesEvent = Extract<UiEvent, { kind: "activities" }>;
 type BookEvent = Extract<UiEvent, { kind: "book" }>;
+type CoverEvent = Extract<UiEvent, { kind: "cover" }>;
+
+export function CoverCard({
+  e,
+  lang,
+  pickedUrl,
+  onPick,
+}: {
+  e: CoverEvent;
+  lang: Lang;
+  pickedUrl: string;
+  onPick: (photo: { id: string; thumb: string; url: string }) => void;
+}) {
+  return (
+    <div className="card book">
+      <h2>{t(lang, "coverTitle")}</h2>
+      <div className="cover-grid">
+        {e.photos.map((p) => {
+          const picked = pickedUrl === p.url;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className={picked ? "cover-item picked" : "cover-item"}
+              onClick={() => onPick(p)}
+              aria-label={t(lang, "coverPick")}
+              aria-pressed={picked}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.thumb} alt="" />
+              <span className="cover-shade" aria-hidden />
+              <span className="cover-brand">AdvenBook</span>
+              <span className="cover-book-title">{e.title}</span>
+              {picked && <span className="cover-chosen">✓ {t(lang, "coverChosen")}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function ConnectCard({
   e,

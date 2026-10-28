@@ -170,7 +170,18 @@ try {
       [...document.querySelectorAll("button")].find((b) => b.innerText.includes("Utiliser ces photos"))?.click();
     });
     await page.waitForFunction(() => !document.querySelector(".photo-strip"), { timeout: 20000 });
-    console.log(`E2E OK — fps=${fps}, ticked=${checked}/89, checkboxes=${boxes}, orderBtn=${order.href}, photosCleared=4/4`);
+
+    // Cover choice: 3 composed covers appear, one tap picks the cover.
+    await page.waitForFunction(
+      () => document.querySelectorAll(".cover-item").length === 3,
+      { timeout: 20000 },
+    );
+    await page.evaluate(() => document.querySelector(".cover-item")?.click());
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Couverture choisie"),
+      { timeout: 20000 },
+    );
+    console.log(`E2E OK — fps=${fps}, ticked=${checked}/89, checkboxes=${boxes}, orderBtn=${order.href}, photosCleared=4/4, coverPicked=1`);
   } finally {
     rmSync(photoDir, { recursive: true, force: true });
   }

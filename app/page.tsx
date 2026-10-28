@@ -24,7 +24,7 @@ import type {
 } from "@/lib/chat-types";
 import { fileToDataUrl, fullDataUrl } from "@/lib/files";
 import { encodeWav } from "@/lib/voice";
-import { ActivitiesCard, BookCard, ConnectCard } from "./components/cards";
+import { ActivitiesCard, BookCard, ConnectCard, CoverCard } from "./components/cards";
 import { FilesPanel } from "./components/FilesPanel";
 
 const GREETING: Msg = {
@@ -98,6 +98,8 @@ export default function Home() {
   const [copiedBook, setCopiedBook] = useState("");
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
   const [challenge, setChallenge] = useState<{ text: string; display?: string } | null>(null);
+  const [coverUrl, setCoverUrl] = useState("");
+  const coverUrlRef = useRef("");
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -360,7 +362,9 @@ export default function Home() {
         (p) => uploaded.has(p.id) || !keepIds.has(p.id),
       );
       for (const p of removed) {
-        URL.revokeObjectURL(p.thumb);
+        // Uploaded photos keep their thumbnail alive: the cover-choice
+        // card below displays them. Dropped ones are freed right away.
+        if (!uploaded.has(p.id)) URL.revokeObjectURL(p.thumb);
         photoFiles.current.delete(p.id);
       }
       setPhotos((prev) =>
@@ -373,6 +377,26 @@ export default function Home() {
           ? `${uploaded.size} photo(s) ready${droppedCount ? `, ${droppedCount} dropped by the AI` : ""} — placing them in the book.`
           : `${uploaded.size} photo(s) prête(s)${droppedCount ? `, ${droppedCount} écartée(s) par l’IA` : ""} — je les place dans le livre.`,
       );
+      // The wow moment: show the best uploaded photos composed as real
+      // covers. One tap picks the book's cover photo (cover_photo_url).
+      const coverPhotos = photos
+        .filter((p) => uploaded.has(p.id))
+        .map((p) => ({ id: p.id, thumb: p.thumb, url: uploaded.get(p.id) as string }))
+        .slice(0, 3);
+      if (coverPhotos.length >= 2) {
+        const firstAsk =
+          messages.find((m) => m.role === "user")?.content ?? "Aventures";
+        const coverTitle =
+          firstAsk.length > 52 ? `${firstAsk.slice(0, 52).trim()}…` : firstAsk;
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: t(lang, "coverIntro"),
+            ui: [{ kind: "cover", title: coverTitle, photos: coverPhotos }],
+          },
+        ]);
+      }
     } catch (err) {
       setMessages((msgs) => [
         ...msgs,
@@ -514,6 +538,7 @@ export default function Home() {
           context: {
             ...(connectionId ? { connectionId } : {}),
             ...(confirmedIds.length ? { confirmedIds } : {}),
+            ...(coverUrlRef.current ? { coverPhotoUrl: coverUrlRef.current } : {}),
           },
           ...(turnstileToken ? { turnstileToken } : {}),
         }),
@@ -727,10 +752,28 @@ export default function Home() {
                   />
                 );
               }
+              if (e.kind === "cover") {
+                return (
+                  <CoverCard
+                    key={j}
+                    e={e}
+                    lang={lang}
+                    pickedUrl={coverUrl}
+                    onPick={(photo) => {
+                      coverUrlRef.current = photo.url;
+                      setCoverUrl(photo.url);
+                      void send(
+                        `Je choisis cette photo pour la couverture du livre : ${photo.url} (à passer comme cover_photo_url à la création).`,
+                        lang === "en" ? "Cover photo chosen ✓" : "Photo de couverture choisie ✓",
+                      );
+                    }}
+                  />
+                );
+              }
               return (
                 <BookCard
                   key={j}
-                  e={e}
+                  e={e as Extract<UiEvent, { kind: "book" }>}
                   lang={lang}
                   copiedBook={copiedBook}
                   onCopied={setCopiedBook}

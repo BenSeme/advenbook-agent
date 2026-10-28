@@ -17,6 +17,11 @@ export type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
   | { kind: "activities"; activities: Activity[] }
   | {
+      kind: "cover";
+      title: string;
+      photos: { id: string; thumb: string; url: string }[];
+    }
+  | {
       kind: "book";
       bookId: string;
       claimUrl: string;
