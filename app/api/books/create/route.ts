@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     } catch {
       // Schema read failed: keep the fallback, creation itself may work.
     }
-    const { books } = await createBookDirectly(
+    const { books, style } = await createBookDirectly(
       { callTool: callMcpTool, maxPerVolume },
       { connectionId, bookChoice, activities, language: lang, title, conversationId, coverPhotoUrl },
     );
@@ -84,10 +84,11 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({
       books,
+      style,
       reply:
         lang === "fr"
-          ? "Votre livre est prêt — ouvrez-le avec le bouton ci-dessous."
-          : "Your book is ready — open it with the button below.",
+          ? `Votre livre est prêt — ouvrez-le avec le bouton ci-dessous. ${style.reason}`
+          : `Your book is ready — open it with the button below. ${style.reason}`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Book creation failed.";

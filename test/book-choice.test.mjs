@@ -4,6 +4,8 @@ import {
   blockedToolForChoice,
   createBookDirectly,
   parseBookChoice,
+  pickBookStyle,
+  sanitizeBookStyle,
   selectTickedActivities,
   toolsForBookChoice,
 } from "../lib/book-choice.ts";
@@ -95,6 +97,12 @@ test("E2E scenario: connect > choose new > tick 80 > create directly > one book,
   );
   assert.equal(calls.length, 1, "exactly one MCP write call");
   assert.equal(calls[0].name, "create_adventure_book");
+  // Art-director style transmitted (Ride 40 km / 800 m, no race/photos:
+  // warm default), picked mechanically, not left to chance.
+  assert.equal(calls[0].args.template, "classique");
+  assert.equal(calls[0].args.typography, "classic");
+  assert.equal(calls[0].args.photo_corners, "rounded");
+  assert.match(out.style.reason, /classique/);
   assert.equal(calls[0].args.activities.length, 80);
   assert.deepEqual(
     calls[0].args.activities.map((a) => a.strava_activity_id),
@@ -130,7 +138,31 @@ test("continue choice creates via add_to_adventure_book with the stored book_id"
   );
   assert.equal(calls[0].name, "add_to_adventure_book");
   assert.equal(calls[0].args.book_id, "BK9");
+  // Style is also transmitted on add_to_adventure_book.
+  assert.equal(calls[0].args.template, "classique");
+  assert.ok(["modern", "classic", "adventure", "basque"].includes(calls[0].args.typography));
+  assert.ok(["rounded", "square"].includes(calls[0].args.photo_corners));
   assert.equal(out.books[0].editorUrl, "https://www.advenbook.com/fr/my-book/creer?bookId=BK9");
+});
+
+test("art director picks style from the outings, one valid value each", () => {
+  const base = { title: "X", date: "2026-07-01", sport: "Run", distance_km: 20, elevation_gain_m: 100, photos: 0 };
+  const race = pickBookStyle([{ ...base, is_race: true }, { ...base, is_race: true }], "fr");
+  assert.deepEqual([race.template, race.typography, race.photo_corners], ["magazine", "modern", "square"]);
+  const mountain = pickBookStyle([{ ...base, elevation_gain_m: 2200 }], "en");
+  assert.deepEqual([mountain.template, mountain.typography, mountain.photo_corners], ["classique", "adventure", "rounded"]);
+  const epic = pickBookStyle([{ ...base, distance_km: 120 }], "fr");
+  assert.deepEqual([epic.template, epic.typography, epic.photo_corners], ["noir", "modern", "square"]);
+  const photos = pickBookStyle([{ ...base, photos: 12 }], "fr");
+  assert.equal(photos.template, "minimaliste");
+  const basque = pickBookStyle([base], "eu");
+  assert.equal(basque.typography, "basque");
+  for (const s of [race, mountain, epic, photos, basque]) assert.ok(s.reason.length > 10, "one-line why");
+  // Invalid model values never reach MCP: they fall back to the pick.
+  const clean = sanitizeBookStyle({ template: "psychedelic", typography: "comic", photo_corners: "round" }, race);
+  assert.deepEqual([clean.template, clean.typography, clean.photo_corners], ["magazine", "modern", "square"]);
+  const kept = sanitizeBookStyle({ template: "noir", typography: "basque", photo_corners: "square" }, race);
+  assert.deepEqual([kept.template, kept.typography, kept.photo_corners], ["noir", "basque", "square"]);
 });
 
 test("direct create refuses an empty ticked selection", async () => {
