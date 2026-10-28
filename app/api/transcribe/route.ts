@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { transcribeAudio } from "@/lib/models";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -7,6 +8,9 @@ export const maxDuration = 60;
 const MAX_BYTES = 10 * 1024 * 1024; // ~5 min at 16 kHz mono 16-bit, well under API limits
 
 export async function POST(req: Request) {
+  if (rateLimited(`transcribe:${clientIp(req)}`, 30, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: "Too many recordings — retry in a few minutes." }, { status: 429 });
+  }
   let form: FormData;
   try {
     form = await req.formData();

@@ -95,16 +95,7 @@ const GREETING: Msg = {
 const WARMUP_RE =
   /échauffement|echauffement|warm.?up|cooldown|cool down|retour au calme|récup|recup|recovery|déblocage|deblocage/i;
 
-function scoreActivity(a: Activity): number {
-  return (
-    activityBadges(a).length * 10 +
-    (a.photos ?? 0) +
-    (a.is_race ? 25 : 0) +
-    Math.min(20, (a.elevation_gain_m ?? 0) / 500)
-  );
-}
-
-/** Same-day rule + one volume (50): defaults keep the 50 strongest. */
+/** Same-day rule: main outing ticked, warm-ups unticked. No count cap. */
 function suggestedSelection(
   activities: Activity[],
 ): Record<string, boolean> {
@@ -122,22 +113,6 @@ function suggestedSelection(
         ((a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) < longest * 0.35)) &&
       (a.distance_km ?? 0) < longest;
     out[a.strava_activity_id] = !isWarmup;
-  }
-  // One volume holds 50: default selection keeps the 50 strongest, so the
-  // volume note only appears if the user manually ticks beyond 50.
-  const ticked = activities.filter((a) => out[a.strava_activity_id]);
-  if (ticked.length > 50) {
-    const keep = new Set(
-      [...ticked]
-        .sort((x, y) => scoreActivity(y) - scoreActivity(x))
-        .slice(0, 50)
-        .map((a) => a.strava_activity_id),
-    );
-    for (const a of activities) {
-      if (out[a.strava_activity_id] && !keep.has(a.strava_activity_id)) {
-        out[a.strava_activity_id] = false;
-      }
-    }
   }
   return out;
 }
@@ -624,29 +599,12 @@ export default function Home() {
     .find((e): e is Extract<UiEvent, { kind: "activities" }> => e.kind === "activities");
   latestActivitiesRef.current = Boolean(latestActivities);
 
-  /** AdvenBook binds one volume to 50 outings; beyond that we keep the
-   *  50 strongest (race, photos, scenic route) instead of blocking. */
-  function pickTop50(chosen: Activity[]): Activity[] {
-    const scored = chosen.map((a) => ({ a, score: scoreActivity(a) }));
-    const keep = new Set(
-      [...scored]
-        .sort((x, y) => y.score - x.score)
-        .slice(0, 50)
-        .map((s) => s.a.strava_activity_id),
-    );
-    return chosen.filter((a) => keep.has(a.strava_activity_id));
-  }
-
-  function confirmSelection(skipInterview: boolean, useTop50 = false) {
+  function confirmSelection(skipInterview: boolean) {
     if (!latestActivities) return;
-    let chosen = latestActivities.activities.filter(
+    const chosen = latestActivities.activities.filter(
       (a) => selected[a.strava_activity_id],
     );
     if (chosen.length === 0) return;
-    if (chosen.length > 50) {
-      if (!useTop50) return;
-      chosen = pickTop50(chosen);
-    }
     // Locked from here: the server will refuse any outing outside this list.
     setConfirmedIds(chosen.map((a) => a.strava_activity_id));
     const list = chosen
@@ -837,35 +795,17 @@ export default function Home() {
                         </span>
                       </label>
                     ))}
-                    {chosenCount > 50 && (
-                      <div className="volume-note">
-                        {lang === "en"
-                          ? `You picked ${chosenCount} outings — one volume holds 50. I can keep the 50 strongest (races, most photos, scenic routes), or untick some yourself in the list.`
-                          : `Vous avez coché ${chosenCount} sorties — un volume en contient 50. Je peux garder les 50 plus marquantes (courses, plus de photos, beaux tracés), ou décochez-en vous-même dans la liste.`}
-                        <div className="row">
-                          <button
-                            className="btn cta"
-                            disabled={busy}
-                            onClick={() => confirmSelection(false, true)}
-                          >
-                            {lang === "en"
-                              ? "Keep the 50 strongest and continue"
-                              : "Garder les 50 plus marquantes et continuer"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
                     <div className="row">
                       <button
                         className="btn"
-                        disabled={busy || !latestActivities || chosenCount > 50}
+                        disabled={busy || !latestActivities}
                         onClick={() => confirmSelection(false)}
                       >
                         {t(lang, "continueSelected")}
                       </button>
                       <button
                         className="btn secondary"
-                        disabled={busy || !latestActivities || chosenCount > 50}
+                        disabled={busy || !latestActivities}
                         onClick={() => confirmSelection(true)}
                       >
                         {t(lang, "skipCreate")}

@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { selectPhotosWithVision } from "@/lib/models";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  if (rateLimited(`photos-select:${clientIp(req)}`, 12, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: "Too many photo analyses — retry in a few minutes." }, { status: 429 });
+  }
   let body: { outingTitle?: unknown; images?: unknown };
   try {
     body = (await req.json()) as typeof body;

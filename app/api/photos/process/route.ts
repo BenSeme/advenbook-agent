@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { put } from "@vercel/blob";
 import { segmentSubject } from "@/lib/models";
 import { computeCrop } from "@/lib/crop";
@@ -12,6 +13,9 @@ const PROMPTS = ["person", "mountain summit", "bicycle", "mountain"];
 // SAM 3.1 finds the subject, sharp crops to a 3:2 print ratio around it,
 // then the crop is uploaded to Vercel Blob as a public photo_url.
 export async function POST(req: Request) {
+  if (rateLimited(`photos-process:${clientIp(req)}`, 40, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: "Too many photo uploads — retry in a few minutes." }, { status: 429 });
+  }
   let body: { dataUrl?: unknown; fileName?: unknown };
   try {
     body = (await req.json()) as typeof body;

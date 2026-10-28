@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -7,6 +8,15 @@ export const maxDuration = 60;
 type Incoming = { role?: unknown; content?: unknown };
 
 export async function POST(req: Request) {
+  if (rateLimited(`chat:${clientIp(req)}`, 24, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      {
+        error:
+          "Beaucoup de demandes en peu de temps — réessayez dans quelques minutes. / Lots of requests in a short time — please retry in a few minutes.",
+      },
+      { status: 429 },
+    );
+  }
   let body: {
     messages?: Incoming[];
     context?: { connectionId?: unknown; confirmedIds?: unknown };

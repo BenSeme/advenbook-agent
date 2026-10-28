@@ -204,7 +204,13 @@ export async function chatCompletion(
   }
   const data = (await res.json()) as {
     choices?: { message?: ChatMessage }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  if (data.usage) {
+    console.log(
+      `llm usage: in=${data.usage.prompt_tokens ?? "?"} out=${data.usage.completion_tokens ?? "?"}`,
+    );
+  }
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error("Model API returned no message.");
   return message;
