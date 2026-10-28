@@ -184,6 +184,7 @@ export default function Home() {
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [photosOpen, setPhotosOpen] = useState(false);
   const [manual, setManual] = useState<ManualActivity[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -341,16 +342,21 @@ export default function Home() {
     }
   }
 
-  async function analysePhotos() {
+  /** ONE button for photos: IA picks the best, SAM crops + uploads them,
+   *  then the agent is told and places free photos itself. */
+  async function preparePhotos() {
+    if (photoBusy || photos.length === 0) return;
     setPhotoBusy(true);
+    setStatus(lang === "en" ? "Choosing your best photos…" : "Choix de vos meilleures photos…");
     try {
       const known = knownDates();
       const groups = new Map<string, PhotoItem[]>();
       for (const p of photos) {
-        // Free photos (no outing chosen) are analysed too, as their own group.
         const key = p.activityId || "__free__";
         groups.set(key, [...(groups.get(key) ?? []), p]);
       }
+      const keepIds = new Set<string>();
+      const reasons = new Map<string, string>();
       for (const [activityId, group] of groups) {
         const title =
           activityId === "__free__"
@@ -369,38 +375,28 @@ export default function Home() {
         });
         const data = (await res.json()) as {
           keep?: { id: string; reason: string }[];
-          drop?: string[];
           error?: string;
         };
         if (!res.ok || data.error) throw new Error(data.error ?? "Analyse impossible");
-        const keepMap = new Map((data.keep ?? []).map((k) => [k.id, k.reason]));
-        setPhotos((prev) =>
-          prev.map((p) =>
-            keepMap.has(p.id)
-              ? { ...p, kept: true, reason: keepMap.get(p.id) }
-              : group.some((g) => g.id === p.id)
-                ? { ...p, kept: false }
-                : p,
-          ),
-        );
+        for (const k of data.keep ?? []) {
+          keepIds.add(k.id);
+          reasons.set(k.id, k.reason);
+        }
       }
-    } catch (err) {
-      setMessages((msgs) => [
-        ...msgs,
-        {
-          role: "assistant",
-          content: `L’analyse des photos a échoué (${err instanceof Error ? err.message : "erreur"}). Vous pouvez quand même créer le livre.`,
-        },
-      ]);
-    } finally {
-      setPhotoBusy(false);
-    }
-  }
-
-  async function processKeptPhotos() {
-    setPhotoBusy(true);
-    try {
-      for (const p of photos.filter((x) => x.kept !== false && !x.uploadedUrl)) {
+      if (keepIds.size === 0) {
+        for (const p of photos) keepIds.add(p.id); // vision kept none: keep all rather than block
+      }
+      setPhotos((prev) =>
+        prev.map((p) => ({ ...p, kept: keepIds.has(p.id), reason: reasons.get(p.id) })),
+      );
+      setStatus(lang === "en" ? "Cropping and uploading…" : "Recadrage et envoi…");
+      const uploaded = new Map<string, string>();
+      for (const p of photos) {
+        if (!keepIds.has(p.id)) continue;
+        if (p.uploadedUrl) {
+          uploaded.set(p.id, p.uploadedUrl);
+          continue;
+        }
         const file = photoFiles.current.get(p.id);
         if (!file) continue;
         const res = await fetch("/api/photos/process", {
@@ -409,19 +405,54 @@ export default function Home() {
           body: JSON.stringify({ dataUrl: await fullDataUrl(file), fileName: p.name }),
         });
         const data = (await res.json()) as { url?: string; error?: string };
+        if (data.url) uploaded.set(p.id, data.url);
         setPhotos((prev) =>
           prev.map((x) =>
             x.id === p.id
               ? data.url
-                ? { ...x, uploadedUrl: data.url, status: "recadrée + envoyée" }
+                ? { ...x, uploadedUrl: data.url, status: "prête" }
                 : { ...x, status: data.error ?? "Échec envoi" }
               : x,
           ),
         );
-        if (!res.ok) break;
       }
+      const byActivity = new Map<string, string[]>();
+      const free: string[] = [];
+      for (const p of photos) {
+        const url = uploaded.get(p.id);
+        if (!url) continue;
+        if (p.activityId) {
+          byActivity.set(p.activityId, [...(byActivity.get(p.activityId) ?? []), url]);
+        } else free.push(url);
+      }
+      const lines: string[] = [];
+      for (const [id, urls] of byActivity) {
+        const title = known.find((k) => k.id === id)?.title ?? id;
+        lines.push(`- "${title}" : ${urls.join(", ")}`);
+      }
+      if (free.length) lines.push(`- Photos libres : ${free.join(", ")}`);
+      if (lines.length === 0) throw new Error("Aucune photo envoyée");
+      setPhotosOpen(false);
+      await send(
+        `Voici les photos préparées pour le livre (garde/photo_urls, recopie les liens sans les modifier). Rattachées :\n${lines.join("\n")}\nPlace toi-même les photos libres (rattachées à la bonne sortie, en pleine page, ou en page photo à part) et dis-moi en une ligne ce que tu as fait. Au moins 25% des photos en pleine page, sur au moins 25% des sorties qui ont des photos.`,
+        lang === "en"
+          ? `${uploaded.size} photo(s) ready — placing them in the book.`
+          : `${uploaded.size} photo(s) prête(s) — je les place dans le livre.`,
+      );
+    } catch (err) {
+      setMessages((msgs) => [
+        ...msgs,
+        {
+          role: "assistant",
+          content:
+            lang === "en"
+              ? `Photo preparation failed (${err instanceof Error ? err.message : "error"}). You can still create the book without them.`
+              : `La préparation des photos a échoué (${err instanceof Error ? err.message : "erreur"}). Vous pouvez quand même créer le livre sans elles.`,
+        },
+      ]);
     } finally {
       setPhotoBusy(false);
+      setStatus(null);
     }
   }
 
@@ -437,7 +468,7 @@ export default function Home() {
       .filter((p) => !p.activityId && p.uploadedUrl)
       .map((p) => p.uploadedUrl as string);
     void send(
-      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. AVANT de créer, demande-moi en une question où les mettre : rattachées à une sortie, en page photo à part (activité autonome avec juste la photo et un titre court), ou en couverture.` : ""}`,
+      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. Place-les toi-même (rattachées à la bonne sortie, en pleine page, ou en page photo à part avec un titre court), sans me demander, et dis-moi en une ligne ce que tu as fait.` : ""}`,
       `Créer le livre avec mes ${manual.length} sortie(s) ajoutée(s) (GPX/photos).`,
     );
   }
@@ -969,64 +1000,79 @@ export default function Home() {
         ))}
         {photos.length > 0 && (
           <>
-            <div className="photo-grid">
+            <div className="photo-strip" aria-label="Photos ajoutées">
               {photos.map((p) => (
-                <figure key={p.id} className="photo-cell">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.thumb} alt={p.name} />
-                  <figcaption>
-                    {p.exifDate ?? "date inconnue"}
-                    {p.kept === true ? " · gardée" : p.kept === false ? " · écartée" : ""}
-                    {p.reason ? ` — ${p.reason}` : ""}
-                    {p.status ? ` · ${p.status}` : ""}
-                    <select
-                      value={p.activityId}
-                      onChange={(e) =>
-                        setPhotos((prev) =>
-                          prev.map((x) =>
-                            x.id === p.id ? { ...x, activityId: e.target.value } : x,
-                          ),
-                        )
-                      }
-                      aria-label="Sortie de cette photo"
-                    >
-                      <option value="">Photo libre — l’agent demandera où la mettre</option>
-                      {knownDates().map((k) => (
-                        <option key={k.id} value={k.id}>
-                          {k.title} ({k.date})
-                        </option>
-                      ))}
-                    </select>
-                  </figcaption>
-                </figure>
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={p.id}
+                  src={p.thumb}
+                  alt={p.name}
+                  title={`${p.name} — ${p.kept === true ? "gardée" : p.kept === false ? "écartée" : "ajoutée"}${p.reason ? ` : ${p.reason}` : ""}`}
+                />
               ))}
-            </div>
-            <div className="row">
-              <button className="btn" disabled={photoBusy} onClick={() => void analysePhotos()}>
-                {t(lang, "analysePhotos")}
-              </button>
+              <span style={{ fontSize: 13, alignSelf: "center" }}>
+                {photos.length} photo(s)
+                {photos.some((p) => p.kept) ? ` · ${photos.filter((p) => p.kept).length} gardée(s)` : ""}
+              </span>
               <button
                 className="btn secondary"
-                disabled={photoBusy || !photos.some((p) => p.kept !== false)}
-                onClick={() => void processKeptPhotos()}
+                style={{ minHeight: 36, padding: "6px 10px" }}
+                onClick={() => setPhotosOpen((v) => !v)}
+                aria-expanded={photosOpen}
               >
-                {t(lang, "cropUpload")}
+                {photosOpen ? "Masquer le détail" : "Détail / ranger"}
               </button>
-              {photos.some((p) => !p.activityId && p.uploadedUrl) && (
-                <button
-                  className="btn secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    void send(
-                      `Voici mes photos libres envoyées : ${photos.filter((p) => !p.activityId && p.uploadedUrl).map((p) => p.uploadedUrl).join(", ")}. Demande-moi où je veux les mettre : rattachées à une sortie, en page photo à part (activité autonome avec juste la photo), ou en couverture.`,
-                      "Photos libres envoyées — où les mettre ?",
-                    )
-                  }
-                >
-                  Dire à l’agent où mettre les photos libres
-                </button>
-              )}
             </div>
+            {photosOpen && (
+              <div className="photo-grid">
+                {photos.map((p) => (
+                  <figure key={p.id} className="photo-cell">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.thumb} alt={p.name} />
+                    <figcaption>
+                      {p.exifDate ?? "date inconnue"}
+                      {p.kept === true ? " · gardée" : p.kept === false ? " · écartée" : ""}
+                      {p.reason ? ` — ${p.reason}` : ""}
+                      {p.status ? ` · ${p.status}` : ""}
+                      <select
+                        value={p.activityId}
+                        onChange={(e) =>
+                          setPhotos((prev) =>
+                            prev.map((x) =>
+                              x.id === p.id ? { ...x, activityId: e.target.value } : x,
+                            ),
+                          )
+                        }
+                        aria-label="Sortie de cette photo"
+                      >
+                        <option value="">Photo libre — l’agent la place tout seul</option>
+                        {knownDates().map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.title} ({k.date})
+                          </option>
+                        ))}
+                      </select>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+            )}
+            <div className="row">
+              <button className="btn cta" disabled={photoBusy || busy} onClick={() => void preparePhotos()}>
+                {photoBusy
+                  ? lang === "en"
+                    ? "Preparing…"
+                    : "Préparation en cours…"
+                  : lang === "en"
+                    ? "Use these photos in the book"
+                    : "Utiliser ces photos dans le livre"}
+              </button>
+            </div>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
+              {lang === "en"
+                ? "One tap: the AI keeps the best, crops them safely, sends them, and places free photos itself (attached, full page, or its own page)."
+                : "Un seul toucher : l’IA garde les meilleures, les recadre sans couper le sujet, les envoie, et place elle-même les photos libres (rattachées, pleine page, ou page à part)."}
+            </p>
           </>
         )}
       </section>
