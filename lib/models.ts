@@ -1,3 +1,5 @@
+import { addTokenUsage } from "./budget";
+
 // Every model call goes through this module (AGENTS.md §4).
 // Provider is switched by env vars only: MODEL_BASE_URL + CHAT_MODEL + MODEL_API_KEY.
 // OpenAI-compatible Chat Completions (docs: "Tool calling", Chat Completions format).
@@ -210,6 +212,7 @@ export async function chatCompletion(
     console.log(
       `llm usage: in=${data.usage.prompt_tokens ?? "?"} out=${data.usage.completion_tokens ?? "?"}`,
     );
+    addTokenUsage(data.usage.prompt_tokens, data.usage.completion_tokens);
   }
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error("Model API returned no message.");

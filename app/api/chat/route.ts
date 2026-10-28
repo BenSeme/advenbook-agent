@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { overDailyBudget } from "@/lib/budget";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -8,6 +9,15 @@ export const maxDuration = 60;
 type Incoming = { role?: unknown; content?: unknown };
 
 export async function POST(req: Request) {
+  if (overDailyBudget()) {
+    return NextResponse.json(
+      {
+        error:
+          "L’agent a atteint son budget du jour et se repose — revenez demain, ou contactez AdvenBook. / The agent has reached its daily budget — please come back tomorrow.",
+      },
+      { status: 503 },
+    );
+  }
   if (rateLimited(`chat:${clientIp(req)}`, 24, 10 * 60 * 1000)) {
     return NextResponse.json(
       {
