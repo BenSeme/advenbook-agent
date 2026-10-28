@@ -86,12 +86,61 @@ const dict = {
   resumeTitle: { fr: "Strava : connexion détectée", en: "Strava: connection found", es: "Strava: conexión detectada", de: "Strava: Verbindung gefunden", it: "Strava: connessione trovata", eu: "Strava: konexioa aurkitu da" },
   resumeBtn: { fr: "Continuer — lire mes sorties", en: "Continue — read my outings", es: "Continuar — leer mis salidas", de: "Weiter — meine Touren lesen", it: "Continua — leggi le mie uscite", eu: "Jarraitu — irakurri nire irteerak" },
   forgetBtn: { fr: "Oublier cette connexion", en: "Forget this connection", es: "Olvidar esta conexión", de: "Verbindung vergessen", it: "Dimentica questa connessione", eu: "Ahaztu konexio hau" },
+  hintIPhone: {
+    fr: "Vous êtes sur iPhone : « Ajouter des photos » ouvre directement votre photothèque Apple. Glissez-déposez aussi vos fichiers ici.",
+    en: "You are on iPhone: “Add photos” opens your Apple Photos library directly. You can also drop files here.",
+    es: "Estás en iPhone: «Añadir fotos» abre tu fototeca de Apple directamente. También puedes soltar archivos aquí.",
+    de: "Du bist auf einem iPhone: „Fotos hinzufügen“ öffnet direkt deine Apple-Fotothek. Dateien kannst du auch hierher ziehen.",
+    it: "Sei su iPhone: «Aggiungi foto» apre direttamente la tua libreria Foto di Apple. Puoi anche trascinare qui i file.",
+    eu: "iPhonean zaude: «Gehitu argazkiak» sakatzean Apple Argazkiak irekiko da. Fitxategiak hona ere arrasta ditzakezu.",
+  },
+  hintAndroid: {
+    fr: "Vous êtes sur Android : « Ajouter des photos » ouvre votre galerie (Google Photos inclus). Glissez-déposez aussi vos fichiers ici.",
+    en: "You are on Android: “Add photos” opens your gallery (Google Photos included). You can also drop files here.",
+    es: "Estás en Android: «Añadir fotos» abre tu galería (con Google Fotos). También puedes soltar archivos aquí.",
+    de: "Du bist auf Android: „Fotos hinzufügen“ öffnet deine Galerie (inkl. Google Fotos). Dateien kannst du auch hierher ziehen.",
+    it: "Sei su Android: «Aggiungi foto» apre la tua galleria (con Google Foto). Puoi anche trascinare qui i file.",
+    eu: "Androiden zaude: «Gehitu argazkiak» sakatzean galeria irekiko da (Google Argazkiak barne). Fitxategiak hona ere arrasta ditzakezu.",
+  },
+  hintDesktop: {
+    fr: "Glissez vos fichiers ici, ou touchez les boutons pour les choisir sur cet appareil.",
+    en: "Drop your files here, or tap the buttons to pick them on this device.",
+    es: "Suelta tus archivos aquí o toca los botones para elegirlos en este dispositivo.",
+    de: "Dateien hierher ziehen oder über die Buttons auf diesem Gerät auswählen.",
+    it: "Trascina qui i file o tocca i pulsanti per sceglierli su questo dispositivo.",
+    eu: "Arrastatu fitxategiak hona edo sakatu botoiak gailu honetan aukeratzeko.",
+  },
+  netError: {
+    fr: "Désolé — je n’ai pas pu joindre le serveur. Vérifiez votre connexion, puis réessayez.",
+    en: "Sorry — I couldn’t reach the server. Check your connection and try again.",
+    es: "Perdón — no pude contactar el servidor. Revisa tu conexión e inténtalo de nuevo.",
+    de: "Entschuldigung — der Server war nicht erreichbar. Bitte Verbindung prüfen und erneut versuchen.",
+    it: "Scusa — non sono riuscito a contattare il server. Controlla la connessione e riprova.",
+    eu: "Barkatu — ezin izan dut zerbitzariarekin konektatu. Egiaztatu konexioa eta saiatu berriro.",
+  },
+  serverError: {
+    fr: "Désolé — ",
+    en: "Sorry — ",
+    es: "Perdón — ",
+    de: "Entschuldigung — ",
+    it: "Scusa — ",
+    eu: "Barkatu — ",
+  },
 } as const;
 
 export type DictKey = keyof typeof dict;
 
 export function t(lang: Lang, key: DictKey): string {
   return dict[key][lang] ?? dict[key].en;
+}
+
+export type DeviceKind = "iphone" | "android" | "desktop";
+
+/** Free, local detection from the user agent — no network, no cost. */
+export function detectDevice(userAgent: string): DeviceKind {
+  if (/iphone|ipad|ipod/i.test(userAgent)) return "iphone";
+  if (/android/i.test(userAgent)) return "android";
+  return "desktop";
 }
 
 export function detectLangFromText(text: string): Lang | null {

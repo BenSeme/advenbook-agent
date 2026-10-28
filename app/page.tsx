@@ -6,6 +6,8 @@ import {
   t,
   LANGS,
   detectLangFromText,
+  detectDevice,
+  type DeviceKind,
   fmtDistance,
   fmtElevation,
   fmtPrice,
@@ -166,12 +168,14 @@ function formatPrice(price: unknown, lang: Lang): string | null {
 }
 
 export default function Home() {
+  const [device, setDevice] = useState<DeviceKind>("desktop");
   const [lang, setLang] = useState<Lang>("fr");
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
 
   useEffect(() => {
     const nav = navigator.language.slice(0, 2) as Lang;
     if ((LANGS as string[]).includes(nav)) setLang(nav);
+    setDevice(detectDevice(navigator.userAgent));
   }, []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -558,7 +562,7 @@ export default function Home() {
           ...next,
           {
             role: "assistant",
-            content: `Sorry — ${data.error ?? "something went wrong."} Check your connection and try again.`,
+            content: `${t(lang, "serverError")}${data.error ?? t(lang, "netError")}`,
           },
         ]);
         return;
@@ -583,8 +587,7 @@ export default function Home() {
         ...next,
         {
           role: "assistant",
-          content:
-            "Sorry — I couldn’t reach the server. Check your connection and try again.",
+          content: t(lang, "netError"),
         },
       ]);
     } finally {
@@ -868,7 +871,11 @@ export default function Home() {
         }}
       >
         <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--brand-muted)" }}>
-          {t(lang, "dropHint")}
+          {device === "iphone"
+            ? t(lang, "hintIPhone")
+            : device === "android"
+              ? t(lang, "hintAndroid")
+              : t(lang, "hintDesktop")}
         </p>
         <div className="row" style={{ marginTop: 0 }}>
           <label className="btn secondary" style={{ cursor: "pointer" }}>
