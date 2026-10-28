@@ -85,6 +85,24 @@ form.composer input {
   border: 1px solid var(--brand-line); border-radius: 8px; background: var(--brand-card); color: var(--brand-ink);
 }
 .hint { padding: 0 16px 10px; font-size: 12px; color: var(--brand-muted); background: var(--brand-bg); }
+.volume-note { margin: 10px 0 0; padding: 10px 12px; font-size: 14px; line-height: 1.5; background: var(--brand-paper); border: 1px solid var(--brand-accent); border-radius: 12px; color: var(--brand-ink); }
+@media (max-width: 640px) {
+  .shell { border-left: 0; border-right: 0; }
+  header { padding: 12px 14px 10px; flex-wrap: wrap; }
+  header h1 { font-size: 19px; }
+  header p { font-size: 13px; }
+  main { padding: 12px 10px; }
+  .msg { max-width: 96%; font-size: 15px; }
+  .card { padding: 12px; border-radius: 12px; }
+  .row { flex-direction: column; }
+  .row .btn, .row label.btn { width: 100%; text-align: center; }
+  form.composer { flex-wrap: wrap; padding: 10px; }
+  form.composer input { flex: 1 1 100%; order: -1; }
+  form.composer .btn { flex: 1; }
+  .files-panel { margin: 0 8px 8px; padding: 10px; }
+  .photo-grid { grid-template-columns: repeat(2, 1fr); }
+  .check { padding: 10px 0; }
+}
 .files-panel { margin: 0 12px 10px; padding: 12px; border: 1.5px dashed var(--brand-accent); border-radius: 14px; background: var(--brand-paper); }
 .shell.dragging .files-panel { background: var(--brand-highlight-bg); border-color: var(--brand-deep); }
 .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }

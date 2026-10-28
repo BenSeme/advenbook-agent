@@ -595,12 +595,36 @@ export default function Home() {
     .find((e): e is Extract<UiEvent, { kind: "activities" }> => e.kind === "activities");
   latestActivitiesRef.current = Boolean(latestActivities);
 
-  function confirmSelection(skipInterview: boolean) {
+  /** AdvenBook binds one volume to 50 outings; beyond that we keep the
+   *  50 strongest (race, photos, scenic route) instead of blocking. */
+  function pickTop50(chosen: Activity[]): Activity[] {
+    const scored = chosen.map((a) => ({
+      a,
+      score:
+        activityBadges(a).length * 10 +
+        (a.photos ?? 0) +
+        (a.is_race ? 25 : 0) +
+        Math.min(20, (a.elevation_gain_m ?? 0) / 500),
+    }));
+    const keep = new Set(
+      [...scored]
+        .sort((x, y) => y.score - x.score)
+        .slice(0, 50)
+        .map((s) => s.a.strava_activity_id),
+    );
+    return chosen.filter((a) => keep.has(a.strava_activity_id));
+  }
+
+  function confirmSelection(skipInterview: boolean, useTop50 = false) {
     if (!latestActivities) return;
-    const chosen = latestActivities.activities.filter(
+    let chosen = latestActivities.activities.filter(
       (a) => selected[a.strava_activity_id],
     );
-    if (chosen.length === 0 || chosen.length > 50) return;
+    if (chosen.length === 0) return;
+    if (chosen.length > 50) {
+      if (!useTop50) return;
+      chosen = pickTop50(chosen);
+    }
     // Locked from here: the server will refuse any outing outside this list.
     setConfirmedIds(chosen.map((a) => a.strava_activity_id));
     const list = chosen
@@ -792,9 +816,22 @@ export default function Home() {
                       </label>
                     ))}
                     {chosenCount > 50 && (
-                      <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--brand-error)" }}>
-                        {chosenCount} / 50 max — AdvenBook accepte au maximum 50 sorties par livre. Décochez-en {chosenCount - 50}.
-                      </p>
+                      <div className="volume-note">
+                        {lang === "en"
+                          ? `You picked ${chosenCount} outings — one volume holds 50. I can keep the 50 strongest (races, most photos, scenic routes), or untick some yourself in the list.`
+                          : `Vous avez coché ${chosenCount} sorties — un volume en contient 50. Je peux garder les 50 plus marquantes (courses, plus de photos, beaux tracés), ou décochez-en vous-même dans la liste.`}
+                        <div className="row">
+                          <button
+                            className="btn cta"
+                            disabled={busy}
+                            onClick={() => confirmSelection(false, true)}
+                          >
+                            {lang === "en"
+                              ? "Keep the 50 strongest and continue"
+                              : "Garder les 50 plus marquantes et continuer"}
+                          </button>
+                        </div>
+                      </div>
                     )}
                     <div className="row">
                       <button
