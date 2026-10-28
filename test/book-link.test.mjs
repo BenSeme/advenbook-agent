@@ -30,6 +30,15 @@ test("raw advenbook urls are stripped from agent text", () => {
   assert.equal(stripAdvenBookUrls(text), "Cliquez ici : puis revenez.");
 });
 
+test("markdown advenbook links become plain labels, never empty links", () => {
+  const text =
+    "1. [Connecter mon Strava](https://www.advenbook.com/fr/strava/ai-connect?c=ABC&utm_source=ai_agent) puis reviens.";
+  const out = stripAdvenBookUrls(text);
+  assert.equal(out, "1. Connecter mon Strava puis reviens.");
+  assert.ok(!out.includes("]("), "no markdown link left");
+  assert.ok(!out.includes("http"), "no raw url left");
+});
+
 test("raw order urls are stripped from agent text (buttons carry them)", () => {
   const text =
     "Prêt : https://www.advenbook.com/fr/my-book/order?bookId=B1&token=SECRET à commander.";

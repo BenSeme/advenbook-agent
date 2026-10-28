@@ -24,9 +24,9 @@ export function ConnectCard({
     <div className="card">
       <h2>{t(lang, "connectTitle")}</h2>
       <ol style={{ margin: "0 0 12px", paddingLeft: 20, fontSize: 14, lineHeight: 1.6 }}>
-        <li>Click “Connect Strava” below and authorise on Strava. That page is AdvenBook’s — it will not bring you back here by itself.</li>
-        <li>Come back here: at the top of your browser, click the other tab (« AdvenBook Agent » / localhost) — or close the Strava tab with its ×. This page stays open underneath, nothing is lost.</li>
-        <li>Click “I’ve connected — continue”. I’ll then read your outings.</li>
+        <li>{t(lang, "connectStep1").replace("{connect}", t(lang, "connectBtn"))}</li>
+        <li>{t(lang, "connectStep2")}</li>
+        <li>{t(lang, "connectStep3").replace("{connected}", t(lang, "connectedBtn"))}</li>
       </ol>
       <div className="row" style={{ marginTop: 0 }}>
         <a className="btn" href={e.connectUrl} target="_blank" rel="noreferrer">
@@ -37,7 +37,7 @@ export function ConnectCard({
         </button>
       </div>
       <p style={{ margin: "10px 0 0", fontSize: 12, color: "#5a6b52" }}>
-        Link valid 24 hours. If reading fails, the authorisation may not have finished — reconnect, then click continue again.
+        {t(lang, "connectNote")}
       </p>
     </div>
   );

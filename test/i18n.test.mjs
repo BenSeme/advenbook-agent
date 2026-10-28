@@ -6,6 +6,17 @@ test("every language has a Send label", () => {
   for (const l of LANGS) assert.ok(t(l, "send").length > 1);
 });
 
+test("connect card is fully translated in every language", () => {
+  for (const l of LANGS) {
+    assert.ok(t(l, "connectStep1").includes("{connect}"), l);
+    assert.ok(t(l, "connectStep2").length > 20, l);
+    assert.ok(t(l, "connectStep3").includes("{connected}"), l);
+    assert.ok(t(l, "connectNote").length > 20, l);
+  }
+  assert.equal(t("fr", "connectedBtn"), "2. C’est connecté — continuer");
+  assert.match(t("fr", "connectStep1"), /Cliquez/);
+});
+
 test("every language has an Order my book label and note", () => {
   for (const l of LANGS) {
     assert.ok(t(l, "orderBook").length > 3, l);

@@ -18,6 +18,14 @@ export function rewritePreviewLinks(text: string): string {
  */
 export function stripAdvenBookUrls(text: string): string {
   return text
+    // Markdown links to AdvenBook first: unwrap to their plain label so
+    // no "[Connecter mon Strava]()" empty link is left behind. Buttons
+    // carry the real links; text must never contain one.
+    .replace(
+      /\[([^\]]*)\]\(\s*https?:\/\/[^\s)]*advenbook\.com[^\s)]*\)/gi,
+      "$1",
+    )
+    .replace(/\[([^\]]*)\]\(\s*\)/g, "$1")
     .replace(/https?:\/\/[^\s)"']*\/strava\/ai-connect\?[^\s)"']*/g, "")
     .replace(/https?:\/\/[^\s)"']*\/my-book\/(preview|creer)\?[^\s)"']*/g, "")
     .replace(/https?:\/\/[^\s)"']*advenbook\.com\/[^\s)"']*(order|checkout|payment|paiement|commande)[^\s)"']*/gi, "")
