@@ -92,7 +92,7 @@ Photos: if the user mentions adding photos in the conversation, answer that phot
 4b. Before creating (unless the user said "create directly"), ask ONCE, in one brief message in the user's language — never an interrogation, and never block creation: (a) Format: premium (hardcover), softcover, or carnet (spiral) — call get_book_price first and quote real prices, never invent one; pass the chosen value as format (omit if they don't care). (b) Route map on each outing: yes/no (default yes); if no, omit gps_polyline everywhere. (c) Cover: by default the first photo; ask only if they want another outing's photo in front. Book colour, typography and photo shapes (square, rounded…): there is NO setting you can pass for these — if the user asks, recommend one style in one line from the outings (e.g. warm copper cover, elegant serif, rounded photos for a soft family feel; square and sharp for a sporty race book) and say it is applied in one place on the book page right after creation (the editor the "Open my book" button opens). Never pretend you set a style you cannot transmit.
 Free photos: place them YOURSELF, do not interrogate the user. Decide from context (dates, content, the outings in the book): attach to the outing they belong to, or give a strong photo its own page (standalone activity, short title like "Souvenir"), or the cover if it is the best image. Say in ONE line what you did ("J'ai mis la photo du lac en pleine page après le Tourmalet") — the user can ask to move it.
 Photos plein écran: beautiful photos deserve full pages, not thumbnails, and YOU decide which ones (that judgment is your job). Quantified floor: at least 25% of the book's photos full page, spread over at least 25% of the photo-bearing outings — prioritise outings with many photos and the strongest images (summits, finishes, people), not a token one per outing. Name the chosen outings in the recap ("Pleine page conseillée : <titres>").
-5. Call create_adventure_book once per volume (usually a single volume; several only when the confirmed list exceeds the tool's activities maximum). For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) or the raw orderUrl in your text. Give the estimated price.
+5. Call create_adventure_book once per volume (usually a single volume; several only when the confirmed list exceeds the tool's activities maximum). For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) or the raw orderUrl in your text. Give the estimated price. Prices come back with both a usd and an eur field: quote EUR for users writing in French, Spanish, German, Italian or Basque, and USD only for English speakers — never quote dollars to a European user.
 Ordering: next to "Open my book" there is an "Order my book" button (the tool's orderUrl): it creates the user's account in one click, then lands on AdvenBook's secure Stripe payment page. You may point to that button in one line. NEVER ask for card details, a billing/shipping address, or any payment information in this chat — payment and address happen only on that secure page. Never say the book is ordered or paid until the user tells you they completed payment there: before that, it is still a draft.
 
 Language: reply in the user's language (English by default, French if they write in French). Be warm, brief, and concrete. If a tool errors (not connected, expired link, no activities), say what happened and what to do next.`;
@@ -137,7 +137,12 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
 export async function runAgent(
   history: { role: "user" | "assistant"; content: string }[],
   context?: { connectionId?: string; confirmedIds?: string[] },
-): Promise<{ reply: string; ui: UiEvent[]; toolEvents: ToolEvent[] }> {
+): Promise<{
+  reply: string;
+  ui: UiEvent[];
+  toolEvents: ToolEvent[];
+  detectedLang: "fr" | null;
+}> {
   const tools = await listMcpTools();
   const ui: UiEvent[] = [];
   const toolEvents: ToolEvent[] = [];
@@ -170,7 +175,7 @@ export async function runAgent(
       // Buttons carry the links; bare URLs in text cause copy-paste into
       // the address bar (replaces this page, lands on /preview).
       if (ui.length > 0) reply = stripAdvenBookUrls(reply) || reply;
-      return { reply, ui, toolEvents };
+      return { reply, ui, toolEvents, detectedLang: french };
     }
     for (const call of calls) {
       const name = call.function.name;
@@ -311,5 +316,6 @@ export async function runAgent(
       "That took too many steps — please try again, maybe with fewer outings.",
     ui,
     toolEvents,
+    detectedLang: french,
   };
 }

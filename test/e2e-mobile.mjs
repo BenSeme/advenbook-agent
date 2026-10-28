@@ -56,6 +56,7 @@ try {
         contentType: "application/json",
         body: JSON.stringify({
           reply: "Votre livre est prêt.",
+          detectedLang: "fr",
           ui: [{
             kind: "book",
             bookId: "B1",

@@ -35,4 +35,11 @@ test("american units and currency, european otherwise", () => {
   assert.equal(fmtElevation(1000, "en"), "3281 ft");
   assert.match(fmtPrice({ usd: "49.00 USD", eur: "45,00 €" }, "en"), /USD/);
   assert.match(fmtPrice({ usd: "49.00 USD", eur: "45,00 €" }, "fr"), /€/);
+  // create_adventure_book shape: both fields present, pick by language
+  const created = { usd: "109.00 USD", eur: "95.00 EUR", isEstimate: true, freeShipping: true };
+  assert.equal(fmtPrice(created, "fr"), "95.00 EUR");
+  assert.equal(fmtPrice(created, "es"), "95.00 EUR");
+  assert.equal(fmtPrice(created, "en"), "109.00 USD");
+  // usd may be null: fall back to eur even for English
+  assert.equal(fmtPrice({ usd: null, eur: "95.00 EUR" }, "en"), "95.00 EUR");
 });

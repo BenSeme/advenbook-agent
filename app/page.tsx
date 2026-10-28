@@ -84,6 +84,7 @@ function HumanCheck({ onToken }: { onToken: (token: string) => void }) {
 export default function Home() {
   const [device, setDevice] = useState<DeviceKind>("desktop");
   const [lang, setLang] = useState<Lang>("fr");
+  const langTouched = useRef(false);
   const [messages, setMessages] = useState<Msg[]>([GREETING]);
 
   useEffect(() => {
@@ -510,7 +511,18 @@ export default function Home() {
         error?: string;
         code?: string;
         challenge?: boolean;
+        detectedLang?: string;
       };
+      // The conversation language wins over the browser language for the
+      // whole UI (prices included) — unless the user picked a language.
+      if (
+        data.detectedLang &&
+        (LANGS as string[]).includes(data.detectedLang) &&
+        !langTouched.current &&
+        data.detectedLang !== lang
+      ) {
+        setLang(data.detectedLang as Lang);
+      }
       if (
         res.status === 429 &&
         data.code === "visitor_cap" &&
@@ -607,7 +619,10 @@ export default function Home() {
         </div>
         <select
           value={lang}
-          onChange={(e) => setLang(e.target.value as Lang)}
+          onChange={(e) => {
+            langTouched.current = true;
+            setLang(e.target.value as Lang);
+          }}
           aria-label="Language"
           style={{
             minHeight: 40,
