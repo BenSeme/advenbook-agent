@@ -30,6 +30,12 @@ test("raw advenbook urls are stripped from agent text", () => {
   assert.equal(stripAdvenBookUrls(text), "Cliquez ici : puis revenez.");
 });
 
+test("raw order urls are stripped from agent text (buttons carry them)", () => {
+  const text =
+    "Prêt : https://www.advenbook.com/fr/my-book/order?bookId=B1&token=SECRET à commander.";
+  assert.equal(stripAdvenBookUrls(text), "Prêt : à commander.");
+});
+
 test("non-preview links and junk return null", () => {
   assert.equal(editorUrlFromClaim("https://www.advenbook.com/fr/my-book/creer?bookId=X"), null);
   assert.equal(editorUrlFromClaim("not a url"), null);

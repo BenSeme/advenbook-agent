@@ -51,7 +51,23 @@ try {
       return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ activities: acts }) });
     }
     if (url.endsWith("/api/chat")) {
-      return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ reply: "OK", ui: [], toolEvents: [] }) });
+      return req.respond({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          reply: "Votre livre est prêt.",
+          ui: [{
+            kind: "book",
+            bookId: "B1",
+            claimUrl: "https://www.advenbook.com/fr/my-book/preview?bookId=B1&claim=X",
+            editorUrl: "https://www.advenbook.com/fr/my-book/creer?bookId=B1",
+            orderUrl: "https://www.advenbook.com/fr/my-book/order?bookId=B1",
+            estimatedPages: 42,
+            price: { eur: "45,00 €" },
+          }],
+          toolEvents: [],
+        }),
+      });
     }
     return req.continue();
   });
@@ -88,7 +104,25 @@ try {
   await new Promise((r) => setTimeout(r, 400));
   const boxes = await page.evaluate(() => document.querySelectorAll('.check input[type="checkbox"]').length);
   assert.equal(boxes, 89, "full list renders all outings");
-  console.log(`E2E OK — fps=${fps}, ticked=${checked}/89, checkboxes=${boxes}`);
+
+  await page.type("form.composer input", "Crée mon livre");
+  await page.click('form.composer button[type="submit"]');
+  await page.waitForFunction(() => document.body.innerText.includes("Commander mon livre"), { timeout: 15000 });
+  const bookLinks = await page.evaluate(() =>
+    [...document.querySelectorAll(".card.book a.btn")].map((a) => ({
+      text: a.innerText.trim(),
+      href: a.href,
+      target: a.target,
+    })),
+  );
+  const open = bookLinks.find((l) => l.text.includes("Ouvrir mon livre"));
+  const order = bookLinks.find((l) => l.text.includes("Commander mon livre"));
+  assert.ok(open, "Open my book button present");
+  assert.equal(open.href, "https://www.advenbook.com/fr/my-book/creer?bookId=B1");
+  assert.ok(order, "Order my book button present next to Open my book");
+  assert.equal(order.href, "https://www.advenbook.com/fr/my-book/order?bookId=B1");
+  assert.equal(order.target, "_blank", "order opens in a new tab, agent page stays");
+  console.log(`E2E OK — fps=${fps}, ticked=${checked}/89, checkboxes=${boxes}, orderBtn=${order.href}`);
 } finally {
   await browser.close();
 }

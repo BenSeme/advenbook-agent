@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { activityBadges, isHighlight, isLikelyWarmup } from "@/lib/highlights";
 import { fmtDistance, fmtElevation, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { Activity, UiEvent } from "@/lib/chat-types";
@@ -136,6 +137,14 @@ export function BookCard({
     void navigator.clipboard?.writeText(url).catch(() => undefined);
     onCopied(e.bookId || "1");
   };
+  const openExternal = (target: string) => (ev: MouseEvent) => {
+    ev.preventDefault();
+    const w = window.open(target, "_blank", "noopener,noreferrer");
+    if (!w) {
+      void navigator.clipboard?.writeText(target).catch(() => undefined);
+      if (target === url) onCopied(e.bookId || "1");
+    }
+  };
   return (
     <div className="card book">
       <h2>{t(lang, "bookReady")}</h2>
@@ -150,20 +159,32 @@ export function BookCard({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(ev) => {
-            ev.preventDefault();
-            const w = window.open(url, "_blank", "noopener,noreferrer");
-            if (!w) copy();
-          }}
+          onClick={openExternal(url)}
         >
           {t(lang, "openBook")}
         </a>
+        {e.orderUrl && (
+          <a
+            className="btn"
+            href={e.orderUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={openExternal(e.orderUrl)}
+          >
+            {t(lang, "orderBook")}
+          </a>
+        )}
         <button className="btn secondary" onClick={copy}>
           {copiedBook === (e.bookId || "1")
             ? lang === "en" ? "Link copied" : "Lien copié"
             : lang === "en" ? "Copy the book link" : "Copier le lien du livre"}
         </button>
       </div>
+      {e.orderUrl && (
+        <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--brand-ink)" }}>
+          {t(lang, "orderNote")}
+        </p>
+      )}
       <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
         {lang === "en"
           ? "If this preview replaces the agent page (embedded browser), copy the link and open it in Chrome or Safari — nothing is lost, the book is saved."

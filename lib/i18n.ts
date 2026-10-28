@@ -70,6 +70,15 @@ const dict = {
   skipCreate: { fr: "Sans questions, créer maintenant", en: "Skip questions, create now", es: "Sin preguntas, crear ahora", de: "Ohne Fragen, jetzt erstellen", it: "Senza domande, crea ora", eu: "Galderarik gabe, sortu orain" },
   bookReady: { fr: "Votre brouillon de livre est prêt", en: "Your book draft is ready", es: "Tu borrador de libro está listo", de: "Dein Buchentwurf ist fertig", it: "La bozza del libro è pronta", eu: "Zure liburu zirriborroa prest dago" },
   openBook: { fr: "Ouvrir mon livre", en: "Open my book", es: "Abrir mi libro", de: "Mein Buch öffnen", it: "Apri il mio libro", eu: "Ireki nire liburua" },
+  orderBook: { fr: "Commander mon livre", en: "Order my book", es: "Pedir mi libro", de: "Mein Buch bestellen", it: "Ordina il mio libro", eu: "Eskatu nire liburua" },
+  orderNote: {
+    fr: "Commander : compte créé en un clic, puis paiement sécurisé Stripe sur advenbook.com. Aucune carte ni adresse ne vous sera demandée ici.",
+    en: "Ordering: account created in one click, then secure Stripe payment on advenbook.com. No card or address will ever be asked here.",
+    es: "Pedir: cuenta creada en un clic, luego pago seguro con Stripe en advenbook.com. Aquí nunca se pedirá tarjeta ni dirección.",
+    de: "Bestellen: Konto mit einem Klick erstellt, dann sichere Stripe-Zahlung auf advenbook.com. Hier werden nie Karte oder Adresse abgefragt.",
+    it: "Ordinare: account creato in un clic, poi pagamento sicuro Stripe su advenbook.com. Qui non verranno mai chiesti carta o indirizzo.",
+    eu: "Eskatzea: kontua klik batean sortuta, gero Stripe ordainketa segurua advenbook.com-en. Hemen ez da inoiz txartelik edo helbiderik eskatuko.",
+  },
   aboutPages: { fr: "pages environ", en: "about pages", es: "páginas aprox.", de: "ca. Seiten", it: "pagine circa", eu: "orrialde gutxi gorabehera" },
   estPrice: { fr: "Prix estimé", en: "Estimated price", es: "Precio estimado", de: "Geschätzter Preis", it: "Prezzo stimato", eu: "Kalkulatutako prezioa" },
   draftNote: {

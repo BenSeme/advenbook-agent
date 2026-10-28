@@ -20,6 +20,7 @@ export function stripAdvenBookUrls(text: string): string {
   return text
     .replace(/https?:\/\/[^\s)"']*\/strava\/ai-connect\?[^\s)"']*/g, "")
     .replace(/https?:\/\/[^\s)"']*\/my-book\/(preview|creer)\?[^\s)"']*/g, "")
+    .replace(/https?:\/\/[^\s)"']*advenbook\.com\/[^\s)"']*(order|checkout|payment|paiement|commande)[^\s)"']*/gi, "")
     .replace(/ {2,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")

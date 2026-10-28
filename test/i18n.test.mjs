@@ -6,6 +6,15 @@ test("every language has a Send label", () => {
   for (const l of LANGS) assert.ok(t(l, "send").length > 1);
 });
 
+test("every language has an Order my book label and note", () => {
+  for (const l of LANGS) {
+    assert.ok(t(l, "orderBook").length > 3, l);
+    assert.ok(t(l, "orderNote").length > 20, l);
+  }
+  assert.equal(t("fr", "orderBook"), "Commander mon livre");
+  assert.equal(t("en", "orderBook"), "Order my book");
+});
+
 test("language detection from user text", () => {
   assert.equal(detectLangFromText("Je veux un livre de mon été avec mes sorties"), "fr");
   assert.equal(detectLangFromText("I want a book of my summer with my runs"), "en");

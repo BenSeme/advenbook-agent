@@ -10,8 +10,10 @@ marque officiel dans [brand/BRAND.md](../brand/BRAND.md).
 Une page web de chat. Un sportif décrit le livre qu'il veut (écrit ou dicté,
 dans sa langue), l'agent choisit ses sorties Strava (ou ses fichiers GPX et
 photos), lui pose quelques questions, puis crée un **brouillon de livre**
-AdvenBook via le serveur MCP public. Il ne commande ni ne paie jamais rien :
-l'utilisateur commande sur advenbook.com.
+AdvenBook via le serveur MCP public. L'agent ne prend jamais de carte ni
+d'adresse : la carte livre affiche un bouton « Commander mon livre »
+(`orderUrl` renvoyé par le MCP) qui crée le compte en un clic puis ouvre la
+page de paiement Stripe sécurisée sur advenbook.com.
 
 Stack : Next.js 15 (App Router, TypeScript strict), React 19, zéro base de
 données. État côté navigateur : conversation en mémoire, identifiant de
@@ -75,10 +77,16 @@ Champs création qui comptent (`create_adventure_book`, schéma relu en entier) 
   et réécrit/supprime tout lien preview brut dans les textes (un lien copié
   dans la barre d'adresse écrase la page de l'agent — source réelle de bugs
   signalés par le fondateur).
+- `orderUrl` (renvoyé par `create_adventure_book`) : la carte livre affiche
+  « Commander mon livre » à côté de « Ouvrir mon livre ». Compte créé en un
+  clic, puis page de paiement Stripe sécurisée sur advenbook.com. L'outil
+  lui-même ne commande ni ne facture rien. Jamais de carte/adresse dans le
+  chat. Un lien orderUrl brut dans les textes est supprimé comme les autres
+  liens AdvenBook ([lib/book-link.ts](../lib/book-link.ts)).
 - **Aucun paramètre** couleur de couverture, typographie, forme d'image
-  (carrée/arrondie), ni mise en page/motorisation commande dans le schéma.
+  (carrée/arrondie), ni mise en page dans le schéma.
   Si AdvenBook ajoute `cover_color`, `typography`, `photo_shape`,
-  `photo_layout` (et un jour un outil de commande), l'agent peut les
+  `photo_layout`, l'agent peut les
   brancher en quelques lignes : le prompt pose déjà format/carte/couverture.
 - `get_book_price` renvoie `{ usd, eur }` par format (carnet/softcover/
   premium, paliers 24/50/…/400 pages). Ne jamais coder un prix en dur.

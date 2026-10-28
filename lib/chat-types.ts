@@ -21,6 +21,7 @@ export type UiEvent =
       bookId: string;
       claimUrl: string;
       editorUrl?: string;
+      orderUrl?: string;
       estimatedPages?: number;
       price?: unknown;
     };
