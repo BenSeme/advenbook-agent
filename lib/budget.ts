@@ -7,6 +7,7 @@
 // (the hard ceiling on total spend) and a per-VISITOR daily cap (one bot
 // can only ever burn its own small slice, never the whole budget).
 import { AsyncLocalStorage } from "node:async_hooks";
+import { alertBudgetIfNeeded } from "./monitor.ts";
 
 let dayKey = "";
 let usedTokens = 0;
@@ -73,6 +74,7 @@ export function addTokenUsage(prompt = 0, completion = 0): void {
   const total = (prompt || 0) + (completion || 0);
   usedTokens += total;
   console.log(`llm budget: ${usedTokens}/${dailyBudget()} tokens today (local view)`);
+  alertBudgetIfNeeded(usedTokens, dailyBudget());
   const visitorId = visitorCtx.getStore()?.visitorId;
   if (visitorId && total > 0) {
     visitorTokens.set(visitorId, (visitorTokens.get(visitorId) ?? 0) + total);

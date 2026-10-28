@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { logError } from "@/lib/monitor";
 import { put } from "@vercel/blob";
 import { segmentSubject } from "@/lib/models";
 import { computeCrop } from "@/lib/crop";
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ url: blob.url, box, usedPrompt, crop: rect });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Processing failed.";
-    console.error("photo process error:", message);
+    logError("photos-process", err);
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { selectPhotosWithVision } from "@/lib/models";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { logError } from "@/lib/monitor";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json(verdict);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Vision failed.";
-    console.error("photo select error:", message);
+    logError("photos-select", err);
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

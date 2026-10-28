@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { transcribeAudio } from "@/lib/models";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { logError } from "@/lib/monitor";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ text });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Transcription failed.";
-    console.error("transcribe error:", message);
+    logError("transcribe", err);
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

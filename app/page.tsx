@@ -794,6 +794,10 @@ export default function Home() {
         {recording
           ? `${t(lang, "speak")}… → ${t(lang, "stop")}`
           : `${t(lang, "speak")} → ${t(lang, "send")} · GPX / photos ↓`}
+        {" · "}
+        <a href="/transparence">
+          {lang === "en" ? "Transparency & your data" : "Transparence et vos données"}
+        </a>
       </div>
     </div>
   );

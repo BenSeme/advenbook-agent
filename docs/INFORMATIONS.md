@@ -185,7 +185,26 @@ sont appliquées dans le code, testées, et doivent le rester :
    certifié pour l'argent. Rate limits en double couche : par visiteur
    (24/10 min) + par IP (60/10 min) sur le chat, 20/10 min sur la lecture
    Strava directe.
-10. **KV prouvé en local** : `test/kv-budget.test.mjs` lance un faux
+10. **Production** : erreurs centralisées en JSON structuré
+    ([lib/monitor.ts](../lib/monitor.ts), filtre `monitor` dans les logs)
+    + push optionnel vers `ALERT_WEBHOOK_URL` (Discord/Slack) avec alertes
+    budget à 50/80/100 % ; santé sur `/api/health` (MCP, modèle, Blob,
+    KV, Turnstile — à pinger par un moniteur externe gratuit). En-têtes de
+    sécurité dans [next.config.ts](../next.config.ts) (CSP avec micro
+    autorisé en self pour la voix, Turnstile whitelisté). CI GitHub
+    Actions prête (`.github/workflows/ci.yml` : typecheck, tests, build à
+    chaque commit dès que le dépôt privé existe) + Dependabot hebdo.
+    Audit dépendances : 5 alertes « high » transitives sans correctif
+    amont (postcss via next, zod via @vercel/blob) — outils de build/SDK,
+    pas d'entrée utilisateur ; `npm audit` en CI à titre informatif.
+11. **Chiffres produit** : compteurs anonymes ([lib/metrics.ts](../lib/metrics.ts))
+    `chat_turn`, `book_created` (côté serveur), `open_click`,
+    `order_click` (clics, aucun identifiant envoyé), `visitor_cap_hit`.
+    Lecture protégée : `GET /api/metrics` avec `METRICS_TOKEN`
+    (404 si non configuré), ratios livres/100 tours et commandes/livre
+    inclus. Le taux de commande **payée** reste chez AdvenBook tant qu'il
+    n'expose pas de statut de commande.
+12. **KV prouvé en local** : `test/kv-budget.test.mjs` lance un faux
     serveur KV REST et des processus Node séparés (simulant plusieurs
     instances serveur) : le processus B voit les tokens et les hits
     comptés par A, pour le budget global, le budget visiteur et les rate

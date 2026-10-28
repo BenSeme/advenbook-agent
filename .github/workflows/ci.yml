@@ -1,0 +1,25 @@
+name: CI
+
+# Runs on every commit once this repo lives on GitHub (private).
+# Local equivalent: npm run typecheck && npm test && npm run build
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # Informational only: known transitive issues (postcss via next,
+      # zod via @vercel/blob) have no upstream fix yet; never block on it.
+      - run: npm audit --audit-level=critical
+        continue-on-error: true

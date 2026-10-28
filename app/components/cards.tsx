@@ -139,6 +139,15 @@ export function BookCard({
   };
   const openExternal = (target: string) => (ev: MouseEvent) => {
     ev.preventDefault();
+    // Funnel counting only (no book id, no URL sent).
+    void fetch("/api/metrics/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: target === url ? "open_click" : "order_click",
+      }),
+      keepalive: true,
+    }).catch(() => undefined);
     const w = window.open(target, "_blank", "noopener,noreferrer");
     if (!w) {
       void navigator.clipboard?.writeText(target).catch(() => undefined);

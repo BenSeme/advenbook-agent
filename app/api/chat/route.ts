@@ -10,6 +10,8 @@ import {
 } from "@/lib/budget";
 import { getOrCreateVisitor, signedVisitorValue, VISITOR_COOKIE } from "@/lib/visitor";
 import { turnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
+import { logError } from "@/lib/monitor";
+import { countMetric } from "@/lib/metrics";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -109,6 +111,7 @@ export async function POST(req: Request) {
   }
 
   if (!trusted && (await overVisitorBudget(visitor.id, false))) {
+    countMetric("visitor_cap_hit");
     return reply(
       {
         code: "visitor_cap",
@@ -124,10 +127,13 @@ export async function POST(req: Request) {
     const result = await withVisitorContext(visitor.id, () =>
       runAgent(history, { connectionId, confirmedIds }),
     );
+    countMetric("chat_turn");
+    const books = result.ui.filter((e) => e.kind === "book").length;
+    if (books > 0) countMetric("book_created", books);
     return reply(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Something went wrong.";
-    console.error("chat error:", message);
+    logError("chat", err);
     return reply({ error: message }, 502);
   }
 }

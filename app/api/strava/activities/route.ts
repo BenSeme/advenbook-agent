@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { callMcpTool } from "@/lib/mcp";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
+import { logError } from "@/lib/monitor";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ activities });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Strava reading failed.";
-    console.error("list_strava_activities error:", message);
+    logError("strava-activities", err);
     return NextResponse.json(
       {
         error: `La lecture Strava a échoué (${message}). L’autorisation n’est peut-être pas terminée : refaites « Connect Strava », attendez le message « vous êtes connecté », puis cliquez Continuer. / Strava reading failed — reconnect and try again.`,
