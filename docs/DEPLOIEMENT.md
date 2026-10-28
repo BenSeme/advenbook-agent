@@ -19,7 +19,8 @@ exception.
 2. Framework : Next.js (détecté automatiquement). Ne changez rien d'autre.
 3. Avant le premier déploiement, ajoutez les variables d'environnement
    (Settings → Environment Variables), voir tableau ci-dessous.
-4. Deploy. L'adresse `https://advenbook-agent-….vercel.app` fonctionne.
+4. Deploy. L'adresse publique du produit est **https://agent.advenbook.com/**
+   (domaine personnalisé branché sur le déploiement Vercel).
 
 | Variable | Obligatoire | Où l'obtenir |
 |---|---|---|
