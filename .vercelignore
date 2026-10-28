@@ -1,0 +1,13 @@
+.env*
+!.env.example
+*.log
+.muse
+.agents
+.eden
+.hg
+.sl
+DEMARRER.md
+.kv-proof*
+.chat-probe*
+.probe*
+tsconfig.tsbuildinfo
