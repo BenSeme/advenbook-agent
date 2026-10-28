@@ -432,7 +432,7 @@ export default function Home() {
       .filter((p) => !p.activityId && p.uploadedUrl)
       .map((p) => p.uploadedUrl as string);
     void send(
-      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. AVANT de créer, demande-moi en une question à quelle(s) sortie(s) je veux les rattacher, puis mets-les en photo_urls de la/les sortie(s) choisie(s).` : ""}`,
+      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. AVANT de créer, demande-moi en une question où les mettre : rattachées à une sortie, en page photo à part (activité autonome avec juste la photo et un titre court), ou en couverture.` : ""}`,
       `Créer le livre avec mes ${manual.length} sortie(s) ajoutée(s) (GPX/photos).`,
     );
   }
@@ -967,7 +967,7 @@ export default function Home() {
                   disabled={busy}
                   onClick={() =>
                     void send(
-                      `Voici mes photos libres envoyées : ${photos.filter((p) => !p.activityId && p.uploadedUrl).map((p) => p.uploadedUrl).join(", ")}. Demande-moi où je veux les mettre dans le livre, puis rattache-les aux sorties que je choisirai.`,
+                      `Voici mes photos libres envoyées : ${photos.filter((p) => !p.activityId && p.uploadedUrl).map((p) => p.uploadedUrl).join(", ")}. Demande-moi où je veux les mettre : rattachées à une sortie, en page photo à part (activité autonome avec juste la photo), ou en couverture.`,
                       "Photos libres envoyées — où les mettre ?",
                     )
                   }
