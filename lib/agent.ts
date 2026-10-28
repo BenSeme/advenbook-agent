@@ -14,6 +14,11 @@ import {
   type MyBook,
 } from "./my-books.ts";
 import { injectAgentSessionId, recordStep } from "./tracking";
+import {
+  blockedToolForChoice,
+  toolsForBookChoice,
+  type BookChoice,
+} from "./book-choice.ts";
 
 /** After a successful book creation AdvenBook has copied the photos, so
  *  our uploaded copies can go. On failure they are kept for a retry. */
@@ -98,7 +103,7 @@ Design intelligence — you are the art director, not a form: from the outing da
 Flow you must follow:
 0. No Strava? If the user has no Strava account (or refuses to connect), do NOT insist: switch to their typed list — ask them to type or dictate their outings (title, date, distance, elevation, duration, sport), then build the book with data_source "typed_list". (GPX files and photo drops arrive in a later milestone; say so in one line if asked.)
 1. Ask what book they want only if totally unclear. If the user expresses any book intent, do NOT ask clarifying questions first (no title/date confirmation): call connect_strava immediately in that same turn. In your reply, in the user's language, say clearly: authorise on the Strava/AdvenBook page, then COME BACK to this tab and click the connected button below (or say "done"). That page does not return here automatically. Wait until the user confirms they connected. NEVER write any link in your text — no raw URL, no markdown link like [text](url): the buttons below your message carry every link, only point to them ("avec le bouton ci-dessous" / "with the button below").
-2. Right after the connection, call get_my_books with the connection_id (language = the user's language) BEFORE listing activities. If the user has a draft book, ask in ONE sentence, in their language: I found your book <title> (<n> outings). Shall we continue it or start a new one? Then follow their answer: continue → their confirmed outings are ADDED to that book with add_to_adventure_book (book_id from get_my_books); new → create_adventure_book as usual. If their only book is already ordered, it cannot change: offer a new volume (a new book) instead. If they have no book, say nothing about it and proceed.
+2. The continue-or-new choice is handled mechanically by the app (asked at most once, stored as bookChoice) before/outside your turns — never call get_my_books and never ask "continue or new?" yourself. If the known state says bookChoice is new, create with create_adventure_book; if it says continue, the server turns your write into an add_to_adventure_book to that book. If their only book is already ordered, it cannot change: offer a new volume (a new book) instead.
 3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. First, open with the 2-3 outings most worth showing off ("à mettre en valeur") using the list fields: many photos (photos count), is_race, has_route with big elevation, longest distance — say why each stands out (e.g. "UTMB: course officielle, 34 photos, énorme dénivelé"). Keep this reply SHORT (a few lines max): the checklist card already shows the details, and long text above it forces endless scrolling. The user confirms/edits the selection in a checklist. After the user confirms a selection, NEVER call list_strava_activities again and NEVER add, re-add or swap outings: the confirmed list is final, and the book must contain exactly those outings — the server also enforces this mechanically. Long books: the user wants the longest book possible with their best outings — never drop confirmed outings to fit a number. AdvenBook binds one book (one create call) to at most the activities.maxItems stated in the create_adventure_book tool definition: if the confirmed list exceeds that maximum, split it chronologically into volumes of at most that many, call create_adventure_book once per volume with titles "<title> — Volume 1", "<title> — Volume 2"…, and present each volume's "Open my book" button. Do this without asking again.
 4. Interview (OPTIONAL, not the goal — the goal is the book draft): offer it, and if the user wants stories, for each chosen outing ask 1-2 short warm questions (who was there, a highlight, how they felt), one outing at a time, then write a 2-4 sentence first-person story in the user's own words. NEVER invent facts. If the user skips, or says "create directly / crée directement", use empty stories and go straight to creation.
 Photos: if the user mentions adding photos in the conversation, answer that photos already on Strava are added automatically by AdvenBook, and that dropping extra phone photos here arrives in the next milestone — do not claim you received photos you cannot see, and continue creating the book without them unless the user insists on waiting.
@@ -116,7 +121,7 @@ function asRecord(v: unknown): Record<string, unknown> {
   return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
 }
 
-function extractUi(name: string, result: unknown, ui: UiEvent[]) {
+function extractUi(name: string, result: unknown, ui: UiEvent[], bookChoice?: BookChoice | null) {
   const r = asRecord(result);
   const connectUrl = [r.connectUrl, r.connect_url, r.url].find(
     (v): v is string => typeof v === "string",
@@ -131,7 +136,7 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
   if (name === "list_strava_activities" && Array.isArray(r.activities)) {
     ui.push({ kind: "activities", activities: r.activities as Activity[] });
   }
-  if (name === "get_my_books") {
+  if (name === "get_my_books" && !bookChoice) {
     const books = normalizeBooks(result);
     if (books.length) ui.push({ kind: "mybooks", books });
   }
@@ -165,6 +170,7 @@ export async function runAgent(
     confirmedIds?: string[];
     coverPhotoUrl?: string;
     continueBookId?: string;
+    bookChoice?: BookChoice | null;
     conversationId?: string;
   },
 ): Promise<{
@@ -173,17 +179,25 @@ export async function runAgent(
   toolEvents: ToolEvent[];
   detectedLang: "fr" | null;
 }> {
-  const tools = await listMcpTools();
+  const bookChoice: BookChoice | null =
+    context?.bookChoice ??
+    (context?.continueBookId
+      ? { kind: "continue", bookId: context.continueBookId }
+      : null);
+  const allTools = await listMcpTools();
+  // Mechanical: once the choice is made the model is never even offered
+  // get_my_books again (and, for a new book, never add_to_*).
+  const tools = toolsForBookChoice(allTools, bookChoice);
   const ui: UiEvent[] = [];
   const toolEvents: ToolEvent[] = [];
   const polylineById = new Map<string, string>();
   const french = detectFrench(history);
   // The book-size ceiling comes from the live tool schema, never hard-coded.
-  const createTool = tools.find((x) => x.function.name === "create_adventure_book");
+  const createTool = allTools.find((x) => x.function.name === "create_adventure_book");
   const maxPerVolume =
     (asRecord(asRecord(asRecord(createTool?.function.parameters).properties).activities)
       .maxItems as number | undefined) ?? 150;
-  const addTool = tools.find((x) => x.function.name === "add_to_adventure_book");
+  const addTool = allTools.find((x) => x.function.name === "add_to_adventure_book");
   const maxPerAdd =
     (asRecord(asRecord(asRecord(addTool?.function.parameters).properties).activities)
       .maxItems as number | undefined) ?? maxPerVolume;
@@ -223,11 +237,19 @@ export async function runAgent(
           } as ChatMessage,
         ]
       : []),
-    ...(context?.continueBookId
+    ...(bookChoice?.kind === "continue"
       ? [
           {
             role: "system",
-            content: `The user chose to CONTINUE their existing draft book, book_id = ${context.continueBookId}. Add their confirmed outings to it with add_to_adventure_book (strava_connection_id + this book_id + the activities). Do NOT create a new book — the server converts any create_adventure_book call into an add to this book.`,
+            content: `The user chose to CONTINUE their existing draft book, book_id = ${bookChoice.bookId}. Add their confirmed outings to it with add_to_adventure_book (strava_connection_id + this book_id + the activities). Do NOT create a new book — the server converts any create_adventure_book call into an add to this book.`,
+          } as ChatMessage,
+        ]
+      : []),
+    ...(bookChoice?.kind === "new"
+      ? [
+          {
+            role: "system",
+            content: `The user chose a NEW book (bookChoice = new, already decided — never ask again, never call get_my_books). Create with create_adventure_book.`,
           } as ChatMessage,
         ]
       : []),
@@ -247,6 +269,17 @@ export async function runAgent(
     }
     for (const call of calls) {
       const name = call.function.name;
+      const blocked = blockedToolForChoice(name, bookChoice);
+      if (blocked) {
+        // Mechanical guard: never reaches MCP, never shows the card again.
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          name,
+          content: JSON.stringify({ error: blocked, skipped: true }),
+        });
+        continue;
+      }
       toolEvents.push({ name, label: TOOL_LABELS[name] ?? `Working (${name})…` });
       let args: Record<string, unknown> = {};
       try {
@@ -325,14 +358,14 @@ export async function runAgent(
         // Continuation is deterministic: if the user chose to continue
         // their draft, ANY create becomes an add to that book (add-only
         // server-side), and an add always targets that book.
-        if (context?.continueBookId) {
+        if (bookChoice?.kind === "continue") {
           effectiveName = "add_to_adventure_book";
           effectiveArgs = injectAgentSessionId(
             {
               strava_connection_id: String(
-                args.strava_connection_id ?? context.connectionId ?? "",
+                args.strava_connection_id ?? context?.connectionId ?? "",
               ),
-              book_id: context.continueBookId,
+              book_id: bookChoice.bookId,
               activities: args.activities,
             },
             context?.conversationId,
@@ -376,7 +409,7 @@ export async function runAgent(
                     activities: chunks[vi],
                   };
             const volResult = await callMcpTool(effectiveName, volArgs);
-            extractUi(effectiveName, volResult, ui);
+            extractUi(effectiveName, volResult, ui, bookChoice);
             await noteToolSuccess(effectiveName, volResult);
             const vr = asRecord(volResult);
             if (
@@ -390,7 +423,7 @@ export async function runAgent(
           result = { volumes: results };
         } else {
           result = await callMcpTool(effectiveName, effectiveArgs);
-          extractUi(effectiveName, result, ui);
+          extractUi(effectiveName, result, ui, bookChoice);
           await noteToolSuccess(effectiveName, result);
           if (isBookWrite) {
             const r = asRecord(result);

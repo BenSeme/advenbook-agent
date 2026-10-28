@@ -26,6 +26,11 @@ import type {
 import { fileToDataUrl, fullDataUrl } from "@/lib/files";
 import { encodeWav } from "@/lib/voice";
 import { ActivitiesCard, BookCard, ConnectCard, CoverCard, MyBooksCard } from "./components/cards";
+import {
+  preserveSelection,
+  selectTickedActivities,
+  type BookChoice,
+} from "@/lib/book-choice";
 import { CelebrationCard, type CelebData } from "./components/CelebrationCard";
 import { FilesPanel } from "./components/FilesPanel";
 
@@ -99,11 +104,26 @@ export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [copiedBook, setCopiedBook] = useState("");
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
+  const confirmedIdsRef = useRef<string[]>([]);
   const [challenge, setChallenge] = useState<{ text: string; display?: string } | null>(null);
   const [coverUrl, setCoverUrl] = useState("");
   const coverUrlRef = useRef("");
-  const [continueBookId, setContinueBookId] = useState("");
-  const continueBookIdRef = useRef("");
+  // Continue-or-new: asked at most once, stored here (+ sessionStorage).
+  // Once set, the mybooks card is never shown and get_my_books is never
+  // called again (server also filters those tools for the model).
+  const [bookChoice, setBookChoiceState] = useState<BookChoice | null>(null);
+  const bookChoiceRef = useRef<BookChoice | null>(null);
+  const myBooksShownRef = useRef(false);
+  function setBookChoice(choice: BookChoice | null) {
+    bookChoiceRef.current = choice;
+    setBookChoiceState(choice);
+    try {
+      if (choice) window.sessionStorage.setItem("ab-book-choice", JSON.stringify(choice));
+      else window.sessionStorage.removeItem("ab-book-choice");
+    } catch {
+      // in-memory ref still keeps this conversation coherent
+    }
+  }
   const [celebration, setCelebration] = useState<CelebData | null>(null);
   const sessionStatsRef = useRef({ outings: 0, km: 0, elev: 0 });
   const preparedCelebPhotosRef = useRef<{ thumb: string; reason?: string }[]>([]);
@@ -126,10 +146,28 @@ export default function Home() {
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const selectedRef = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
   // The Strava connection_id survives reloads / tab switches.
   useEffect(() => {
     const saved = window.localStorage.getItem("ab-connection-id");
     if (saved) setConnectionId(saved);
+    try {
+      const raw = window.sessionStorage.getItem("ab-book-choice");
+      if (raw) {
+        const parsed = JSON.parse(raw) as BookChoice;
+        if (parsed.kind === "new" || (parsed.kind === "continue" && parsed.bookId)) {
+          bookChoiceRef.current = parsed;
+          setBookChoiceState(parsed);
+          myBooksShownRef.current = true;
+        }
+      }
+    } catch {
+      // no stored choice: it will be asked once, after connecting
+    }
   }, []);
 
   // Anonymous conversation id for cost/funnel tracking (c_ + 16 chars,
@@ -189,7 +227,12 @@ export default function Home() {
       const res = await fetch("/api/strava/activities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId, lang, conversationId: conversationInfo().id }),
+        body: JSON.stringify({
+          connectionId,
+          lang,
+          conversationId: conversationInfo().id,
+          ...(bookChoiceRef.current ? { bookChoice: bookChoiceRef.current } : {}),
+        }),
       });
       const data = (await res.json()) as {
         activities?: Activity[];
@@ -210,11 +253,15 @@ export default function Home() {
       }
       const activities = data.activities ?? [];
       const books = data.books ?? [];
-      setSelected(suggestedSelection(activities));
+      // Never lose a tick: existing ticks win, new ids get the suggestion.
+      setSelected((prev) => preserveSelection(prev, activities, suggestedSelection(activities)));
       const firstDraft = books.find((b) => b.status === "draft");
+      // Continue-or-new is asked at most once per conversation.
+      const showBooks = books.length > 0 && !bookChoiceRef.current && !myBooksShownRef.current;
+      if (showBooks) myBooksShownRef.current = true;
       setMessages([
         ...base,
-        ...(books.length
+        ...(showBooks
           ? [
               {
                 role: "assistant" as const,
@@ -612,9 +659,16 @@ export default function Home() {
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           context: {
             ...(connectionId ? { connectionId } : {}),
-            ...(confirmedIds.length ? { confirmedIds } : {}),
+            ...(confirmedIdsRef.current.length
+              ? { confirmedIds: confirmedIdsRef.current }
+              : confirmedIds.length
+                ? { confirmedIds }
+                : {}),
             ...(coverUrlRef.current ? { coverPhotoUrl: coverUrlRef.current } : {}),
-            ...(continueBookIdRef.current ? { continueBookId: continueBookIdRef.current } : {}),
+            ...(bookChoiceRef.current ? { bookChoice: bookChoiceRef.current } : {}),
+            ...(bookChoiceRef.current?.kind === "continue"
+              ? { continueBookId: bookChoiceRef.current.bookId }
+              : {}),
           },
           ...(turnstileToken ? { turnstileToken } : {}),
         }),
@@ -669,10 +723,17 @@ export default function Home() {
       for (const e of ui) {
         if (e.kind === "connect" && e.connectionId) rememberConnection(e.connectionId);
         if (e.kind === "activities") {
-          // After a confirmation the selection is locked — a re-list from
-          // the model must never silently re-tick other outings.
+          // Never lose a tick between turns: existing ticks always win;
+          // after a confirmation the selection is locked exactly as ticked.
           setSelected((prev) =>
-            confirmedIds.length > 0 ? prev : suggestedSelection(e.activities),
+            confirmedIdsRef.current.length > 0
+              ? Object.fromEntries(
+                  e.activities.map((a) => [
+                    a.strava_activity_id,
+                    confirmedIdsRef.current.includes(a.strava_activity_id),
+                  ]),
+                )
+              : preserveSelection(prev, e.activities, suggestedSelection(e.activities)),
           );
         }
         if (e.kind === "book") {
@@ -738,24 +799,108 @@ export default function Home() {
     }
   }, [selected, messages, manual]);
 
+  /** Create directly: the server calls create/add itself with exactly
+   *  the ticked outings. The model is not asked, so it cannot re-add
+   *  the whole Strava list or re-ask continue-or-new. */
+  async function createDirectBook(chosen: Activity[]) {
+    if (busy || chosen.length === 0) return;
+    const display =
+      lang === "en"
+        ? `Create directly (${chosen.length} outings, no stories).`
+        : `Création directe demandée (${chosen.length} sorties, sans histoires).`;
+    const base: Msg[] = [...messages, { role: "user", content: display, display }];
+    setMessages(base);
+    setBusy(true);
+    setStatus(lang === "en" ? "Creating your book draft…" : "Création de votre livre…");
+    try {
+      const firstAsk = messages.find((m) => m.role === "user")?.content ?? "AdvenBook";
+      const res = await fetch("/api/books/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connectionId,
+          bookChoice: bookChoiceRef.current ?? { kind: "new" },
+          activities: chosen,
+          lang,
+          conversationId: conversationInfo().id,
+          title: firstAsk.length > 80 ? firstAsk.slice(0, 80).trim() : firstAsk,
+          ...(coverUrlRef.current ? { coverPhotoUrl: coverUrlRef.current } : {}),
+        }),
+      });
+      const data = (await res.json()) as {
+        books?: Extract<UiEvent, { kind: "book" }>[];
+        reply?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error || !data.books?.length) {
+        setMessages([
+          ...base,
+          {
+            role: "assistant",
+            content:
+              data.error ??
+              (lang === "en"
+                ? "Book creation failed — please try again."
+                : "La création du livre a échoué — réessayez."),
+          },
+        ]);
+        return;
+      }
+      for (const book of data.books) {
+        setCelebration({
+          bookId: book.bookId || book.title || "book",
+          title: book.title ?? (firstAsk.length > 52 ? `${firstAsk.slice(0, 52).trim()}…` : firstAsk),
+          outings: chosen.length,
+          km: chosen.reduce((n, a) => n + (a.distance_km ?? 0), 0),
+          elev: chosen.reduce((n, a) => n + (a.elevation_gain_m ?? 0), 0),
+          photos: preparedCelebPhotosRef.current,
+          editorUrl: book.editorUrl ?? book.claimUrl,
+          orderUrl: book.orderUrl,
+        });
+      }
+      setMessages([
+        ...base,
+        { role: "assistant", content: data.reply ?? "Votre livre est prêt.", ui: data.books },
+      ]);
+    } catch {
+      setMessages([
+        ...base,
+        {
+          role: "assistant",
+          content:
+            lang === "en"
+              ? "I could not reach the server to create the book. Please try again."
+              : "Je n’ai pas pu joindre le serveur pour créer le livre. Réessayez dans un instant.",
+        },
+      ]);
+    } finally {
+      setBusy(false);
+      setStatus(null);
+    }
+  }
+
   function confirmSelection(skipInterview: boolean) {
     if (!latestActivities) return;
-    const chosen = latestActivities.activities.filter(
-      (a) => selected[a.strava_activity_id],
+    // Read the live tick state (ref, not the stale render closure):
+    // exactly the ticked outings, in list order.
+    const chosen = selectTickedActivities(
+      latestActivities.activities,
+      Object.keys(selectedRef.current).length ? selectedRef.current : selected,
     );
     if (chosen.length === 0) return;
-    // Locked from here: the server will refuse any outing outside this list.
-    setConfirmedIds(chosen.map((a) => a.strava_activity_id));
+    // Locked synchronously, before any async turn can lose or widen it.
+    confirmedIdsRef.current = chosen.map((a) => a.strava_activity_id);
+    setConfirmedIds(confirmedIdsRef.current);
+    if (skipInterview) {
+      void createDirectBook(chosen);
+      return;
+    }
     const list = chosen
       .map((a) => `${a.title} (${a.date}, id ${a.strava_activity_id})`)
       .join("; ");
     send(
-      skipInterview
-        ? `I confirm these outings: ${list}. Skip the questions and create the book now, with no stories.`
-        : `I confirm these outings: ${list}. Ask me your questions, one outing at a time.`,
-      skipInterview
-        ? `Création directe demandée (${chosen.length} sorties, sans histoires).`
-        : `Sélection confirmée (${chosen.length} sorties).`,
+      `I confirm these outings: ${list}. Ask me your questions, one outing at a time.`,
+      `Sélection confirmée (${chosen.length} sorties).`,
     );
   }
 
@@ -859,38 +1004,62 @@ export default function Home() {
                     listOpen={listOpen}
                     onToggleList={() => setListOpen((v) => !v)}
                     selected={selected}
-                    onToggleActivity={(a, checked) =>
-                      setSelected((prev) => ({ ...prev, [a.strava_activity_id]: checked }))
-                    }
+                    onToggleActivity={(a, checked) => {
+                      selectedRef.current = { ...selectedRef.current, [a.strava_activity_id]: checked };
+                      setSelected(selectedRef.current);
+                    }}
                     onConfirm={(skip) => confirmSelection(skip)}
                   />
                 );
               }
               if (e.kind === "mybooks") {
+                // Asked at most once: once a choice is stored this card
+                // never renders again, however many turns pass.
+                if (bookChoice) return null;
                 return (
                   <MyBooksCard
                     key={j}
                     e={e}
                     lang={lang}
                     busy={busy}
-                    chosenBookId={continueBookId}
+                    chosenBookId=""
                     onContinue={(book) => {
-                      continueBookIdRef.current = book.book_id;
-                      setContinueBookId(book.book_id);
-                      void send(
-                        `Je continue mon livre existant « ${book.title} » (book_id ${book.book_id}) : ajoute les sorties confirmées à CE livre avec add_to_adventure_book, sans rien retirer ni écraser ses textes.`,
+                      setBookChoice({ kind: "continue", bookId: book.book_id });
+                      const display =
                         lang === "en"
                           ? `Continuing my book “${book.title}”`
-                          : `Je continue mon livre « ${book.title} »`,
-                      );
+                          : `Je continue mon livre « ${book.title} »`;
+                      setMessages((prev) => [
+                        ...prev,
+                        {
+                          role: "user",
+                          content: `Je continue mon livre existant « ${book.title} » (book_id ${book.book_id}) : ajoute les sorties confirmées à CE livre avec add_to_adventure_book, sans rien retirer ni écraser ses textes.`,
+                          display,
+                        },
+                        {
+                          role: "assistant",
+                          content:
+                            lang === "en"
+                              ? "Got it — we'll add to that book. Tick your outings below, then Continue or Create directly."
+                              : "C’est noté — on ajoute à ce livre. Cochez vos sorties ci-dessous, puis Continuer ou Créer directement.",
+                        },
+                      ]);
                     }}
                     onNewBook={() => {
-                      continueBookIdRef.current = "";
-                      setContinueBookId("");
-                      void send(
-                        "Je commence un nouveau livre, pas celui qui existe déjà.",
-                        lang === "en" ? "Starting a new book" : "Je commence un nouveau livre",
-                      );
+                      setBookChoice({ kind: "new" });
+                      const display =
+                        lang === "en" ? "Starting a new book" : "Je commence un nouveau livre";
+                      setMessages((prev) => [
+                        ...prev,
+                        { role: "user", content: display, display },
+                        {
+                          role: "assistant",
+                          content:
+                            lang === "en"
+                              ? "Got it — a brand-new book. Tick your outings below, then Continue or Create directly."
+                              : "C’est noté — un tout nouveau livre. Cochez vos sorties ci-dessous, puis Continuer ou Créer directement.",
+                        },
+                      ]);
                     }}
                   />
                 );

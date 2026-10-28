@@ -11,6 +11,7 @@ import {
 import { getOrCreateVisitor, signedVisitorValue, VISITOR_COOKIE } from "@/lib/visitor";
 import { turnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 import { logError } from "@/lib/monitor";
+import { parseBookChoice } from "@/lib/book-choice";
 import { countMetric } from "@/lib/metrics";
 import {
   ensureConversation,
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
       confirmedIds?: unknown;
       coverPhotoUrl?: unknown;
       continueBookId?: unknown;
+      bookChoice?: unknown;
     };
     turnstileToken?: unknown;
     conversationId?: unknown;
@@ -127,6 +129,10 @@ export async function POST(req: Request) {
       ? body.context.continueBookId.slice(0, 100)
       : undefined;
 
+  const bookChoice =
+    parseBookChoice(body.context?.bookChoice) ??
+    (continueBookId ? { kind: "continue" as const, bookId: continueBookId } : null);
+
   const confirmedIds = Array.isArray(body.context?.confirmedIds)
     ? body.context.confirmedIds
         .filter((x): x is string => typeof x === "string")
@@ -169,6 +175,7 @@ export async function POST(req: Request) {
           confirmedIds,
           coverPhotoUrl,
           continueBookId,
+          bookChoice,
           conversationId,
         }),
       ),

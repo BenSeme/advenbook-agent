@@ -3,6 +3,7 @@ import { callMcpTool } from "@/lib/mcp";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { logError } from "@/lib/monitor";
 import { normalizeBooks } from "@/lib/my-books";
+import { mayCallGetMyBooks, parseBookChoice } from "@/lib/book-choice";
 import { isConversationId, recordStep } from "@/lib/tracking";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
       { status: 429 },
     );
   }
-  let body: { connectionId?: unknown; lang?: unknown; conversationId?: unknown };
+  let body: { connectionId?: unknown; lang?: unknown; conversationId?: unknown; bookChoice?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -57,15 +58,18 @@ export async function POST(req: Request) {
     // Right after the connection: does this account already have books?
     // Non-fatal — a failure here must never block reading the outings.
     let books: ReturnType<typeof normalizeBooks> = [];
-    try {
-      books = normalizeBooks(
-        await callMcpTool("get_my_books", {
-          connection_id: connectionId,
-          language: lang,
-        }),
-      );
-    } catch (err) {
-      logError("get-my-books", err);
+    // Asked at most once: once the choice is stored, never call again.
+    if (mayCallGetMyBooks(parseBookChoice(body.bookChoice))) {
+      try {
+        books = normalizeBooks(
+          await callMcpTool("get_my_books", {
+            connection_id: connectionId,
+            language: lang,
+          }),
+        );
+      } catch (err) {
+        logError("get-my-books", err);
+      }
     }
     if (conversationId) {
       // A successful Strava read is the proof of connection.
