@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { callMcpTool } from "@/lib/mcp";
+import { clientIp, rateLimited } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -7,6 +8,15 @@ export const maxDuration = 60;
 // Deterministic "I have connected" step: no LLM involved. Calls
 // list_strava_activities with the stored connection_id and returns the list.
 export async function POST(req: Request) {
+  if (await rateLimited(`strava-activities:${clientIp(req)}`, 20, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      {
+        error:
+          "Beaucoup de lectures Strava en peu de temps — réessayez dans quelques minutes. / Many Strava reads in a short time — please retry in a few minutes.",
+      },
+      { status: 429 },
+    );
+  }
   let body: { connectionId?: unknown };
   try {
     body = (await req.json()) as { connectionId?: unknown };

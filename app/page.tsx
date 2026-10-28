@@ -46,6 +46,41 @@ function suggestedSelection(
 
 
 
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+
+/** Human check shown ONLY when the anonymous visitor cap is hit and
+ *  Turnstile keys are configured. Invisible for everyone else. */
+function HumanCheck({ onToken }: { onToken: (token: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return;
+    const render = () => {
+      const w = window as unknown as {
+        turnstile?: {
+          render: (el: HTMLElement, opts: Record<string, unknown>) => void;
+        };
+      };
+      if (w.turnstile && ref.current) {
+        w.turnstile.render(ref.current, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: (token: string) => onToken(token),
+        });
+      }
+    };
+    if (document.querySelector('script[src*="turnstile"]')) {
+      render();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    s.async = true;
+    s.onload = render;
+    document.head.appendChild(s);
+  }, [onToken]);
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div ref={ref} style={{ margin: "8px 12px" }} />;
+}
+
 export default function Home() {
   const [device, setDevice] = useState<DeviceKind>("desktop");
   const [lang, setLang] = useState<Lang>("fr");
@@ -61,6 +96,7 @@ export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [copiedBook, setCopiedBook] = useState("");
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
+  const [challenge, setChallenge] = useState<{ text: string; display?: string } | null>(null);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -425,7 +461,7 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
-  async function send(text: string, display?: string) {
+  async function send(text: string, display?: string, turnstileToken?: string) {
     const clean = text.trim();
     if (!clean || busy) return;
     // Only the user's own typing changes the UI language — never the
@@ -446,10 +482,10 @@ export default function Home() {
       setInput("");
       return;
     }
-    const next: Msg[] = [
-      ...messages,
-      { role: "user", content: clean, display },
-    ];
+    // A human-check retry reuses the already-shown user message.
+    const next: Msg[] = turnstileToken
+      ? messages
+      : [...messages, { role: "user", content: clean, display }];
     setMessages(next);
     setInput("");
     setBusy(true);
@@ -464,6 +500,7 @@ export default function Home() {
             ...(connectionId ? { connectionId } : {}),
             ...(confirmedIds.length ? { confirmedIds } : {}),
           },
+          ...(turnstileToken ? { turnstileToken } : {}),
         }),
       });
       const data = (await res.json()) as {
@@ -471,7 +508,26 @@ export default function Home() {
         ui?: UiEvent[];
         toolEvents?: { label: string }[];
         error?: string;
+        code?: string;
+        challenge?: boolean;
       };
+      if (
+        res.status === 429 &&
+        data.code === "visitor_cap" &&
+        data.challenge &&
+        TURNSTILE_SITE_KEY &&
+        !turnstileToken
+      ) {
+        setMessages([
+          ...next,
+          {
+            role: "assistant",
+            content: `${t(lang, "serverError")}${data.error ?? ""}`,
+          },
+        ]);
+        setChallenge({ text: clean, display });
+        return;
+      }
       if (!res.ok || data.error) {
         setMessages([
           ...next,
@@ -683,6 +739,15 @@ export default function Home() {
         onPreparePhotos={() => void preparePhotos()}
       />
 
+      {challenge && (
+        <HumanCheck
+          onToken={(token) => {
+            const pending = challenge;
+            setChallenge(null);
+            if (pending) void send(pending.text, pending.display, token);
+          }}
+        />
+      )}
       <form
         className="composer"
         onSubmit={(e) => {

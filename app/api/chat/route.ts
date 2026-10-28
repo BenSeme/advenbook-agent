@@ -1,40 +1,74 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
-import { overDailyBudget } from "@/lib/budget";
+import {
+  isVisitorVerified,
+  markVisitorVerified,
+  overDailyBudget,
+  overVisitorBudget,
+  withVisitorContext,
+} from "@/lib/budget";
+import { getOrCreateVisitor, signedVisitorValue, VISITOR_COOKIE } from "@/lib/visitor";
+import { turnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type Incoming = { role?: unknown; content?: unknown };
 
+function withVisitorCookie(
+  res: NextResponse,
+  visitor: { id: string; isNew: boolean },
+): NextResponse {
+  if (visitor.isNew) {
+    res.cookies.set(VISITOR_COOKIE, signedVisitorValue(visitor.id), {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 3600,
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+  return res;
+}
+
 export async function POST(req: Request) {
+  const visitor = getOrCreateVisitor(req);
+  const reply = (body: unknown, status = 200) =>
+    withVisitorCookie(NextResponse.json(body, { status }), visitor);
+
   if (await overDailyBudget()) {
-    return NextResponse.json(
+    return reply(
       {
         error:
           "L’agent a atteint son budget du jour et se repose — revenez demain, ou contactez AdvenBook. / The agent has reached its daily budget — please come back tomorrow.",
       },
-      { status: 503 },
+      503,
     );
   }
-  if (await rateLimited(`chat:${clientIp(req)}`, 24, 10 * 60 * 1000)) {
-    return NextResponse.json(
+  // Two rate layers: per visitor (cookie) and per IP (rotating cookies
+  // still hit the IP layer; a shared home IP stays well under it).
+  if (
+    (await rateLimited(`chat:${visitor.id}`, 24, 10 * 60 * 1000)) ||
+    (await rateLimited(`chat-ip:${clientIp(req)}`, 60, 10 * 60 * 1000))
+  ) {
+    return reply(
       {
         error:
           "Beaucoup de demandes en peu de temps — réessayez dans quelques minutes. / Lots of requests in a short time — please retry in a few minutes.",
       },
-      { status: 429 },
+      429,
     );
   }
   let body: {
     messages?: Incoming[];
     context?: { connectionId?: unknown; confirmedIds?: unknown };
+    turnstileToken?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    return reply({ error: "Invalid JSON body." }, 400);
   }
   const history = (body.messages ?? [])
     .filter(
@@ -47,10 +81,7 @@ export async function POST(req: Request) {
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
 
   if (history.length === 0 || history[history.length - 1].role !== "user") {
-    return NextResponse.json(
-      { error: "Send at least one user message." },
-      { status: 400 },
-    );
+    return reply({ error: "Send at least one user message." }, 400);
   }
 
   const connectionId =
@@ -64,12 +95,39 @@ export async function POST(req: Request) {
         .slice(0, 200)
     : undefined;
 
+  // Trust anchors, cheapest first: a Strava connection means an AdvenBook
+  // account exists; a passed human check (only ever asked at the cap)
+  // marks this visitor verified for the day.
+  let trusted = Boolean(connectionId) || (await isVisitorVerified(visitor.id));
+  if (
+    !trusted &&
+    typeof body.turnstileToken === "string" &&
+    (await verifyTurnstile(body.turnstileToken, clientIp(req)))
+  ) {
+    await markVisitorVerified(visitor.id);
+    trusted = true;
+  }
+
+  if (!trusted && (await overVisitorBudget(visitor.id, false))) {
+    return reply(
+      {
+        code: "visitor_cap",
+        challenge: turnstileConfigured(),
+        error:
+          "Vous avez beaucoup utilisé l’agent aujourd’hui (limite visiteur, pour garder le service gratuit et rapide pour tous). Connectez votre Strava pour continuer tout de suite, prouvez que vous êtes humain ci-dessous, ou revenez demain. / You have used the agent a lot today (visitor limit, to keep it fast and free for everyone). Connect Strava to continue right away, verify you are human below, or come back tomorrow.",
+      },
+      429,
+    );
+  }
+
   try {
-    const result = await runAgent(history, { connectionId, confirmedIds });
-    return NextResponse.json(result);
+    const result = await withVisitorContext(visitor.id, () =>
+      runAgent(history, { connectionId, confirmedIds }),
+    );
+    return reply(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Something went wrong.";
     console.error("chat error:", message);
-    return NextResponse.json({ error: message }, { status: 502 });
+    return reply({ error: message }, 502);
   }
 }

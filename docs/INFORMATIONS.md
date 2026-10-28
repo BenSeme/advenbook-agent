@@ -33,7 +33,7 @@ connexion Strava en `localStorage` (clé `ab-connection-id`).
 | [lib/gpx.ts](../lib/gpx.ts) | Parseur GPX navigateur/serveur : distance, dénivelé, polyline encodée |
 | [lib/crop.ts](../lib/crop.ts) | Géométrie de recadrage 3:2 contenant le sujet SAM |
 | [lib/i18n.ts](../lib/i18n.ts) | 6 langues d'interface, unités/monnaies, détection langue et appareil |
-| [lib/budget.ts](../lib/budget.ts) · [lib/rate-limit.ts](../lib/rate-limit.ts) | Plafond quotidien tokens ; limites par IP |
+| [lib/budget.ts](../lib/budget.ts) · [lib/rate-limit.ts](../lib/rate-limit.ts) · [lib/visitor.ts](../lib/visitor.ts) · [lib/turnstile.ts](../lib/turnstile.ts) | Plafond quotidien global + par visiteur (cookie signé) ; limites visiteur + IP ; contrôle humain seulement en cas d'abus |
 | [app/api/photos/](../app/api/photos/) | `select` (vision) et `process` (SAM + sharp + Vercel Blob) |
 | [app/api/transcribe/route.ts](../app/api/transcribe/route.ts) | Dictée vocale → Muse Voice Transcribe |
 | [app/api/strava/activities/route.ts](../app/api/strava/activities/route.ts) | Lecture Strava déterministe après connexion (sans LLM) |
@@ -165,6 +165,35 @@ sont appliquées dans le code, testées, et doivent le rester :
    `DAILY_TOKEN_BUDGET=100` dans `.env.local` (via un vrai éditeur —
    `echo X=1>> fichier` en cmd mange le `1` comme descripteur), redémarrer,
    le 2ᵉ appel doit être 503 sans nouvelle ligne `llm usage`.
+9. **Comptes et anti-bot (modèle « identité au moment de valeur »)** :
+   aucun compte n'est demandé pour créer. Le visiteur reçoit un cookie
+   signé `ab-vid` (aléatoire, httpOnly, aucune donnée personnelle —
+   [lib/visitor.ts](../lib/visitor.ts)) qui porte un **plafond individuel**
+   `VISITOR_DAILY_TOKEN_BUDGET` (défaut 250 000 tokens/jour, soit ~0,40 $
+   maximum par bot et par jour). Deux ancres de confiance levent le
+   plafond ×5 : la connexion Strava (le compte AdvenBook est alors créé
+   par Strava côté AdvenBook) et un contrôle humain Turnstile, montré
+   **uniquement** quand le plafond anonyme est atteint et seulement si
+   `TURNSTILE_SECRET_KEY` + `NEXT_PUBLIC_TURNSTILE_SITE_KEY` sont
+   configurés ([lib/turnstile.ts](../lib/turnstile.ts) ; inerte sinon, le
+   message propose alors Strava ou demain). Sans Strava, le compte naît au
+   moment de commander : bouton « Commander » (`orderUrl`) = compte en un
+   clic puis paiement Stripe chez AdvenBook. L'agent ne stocke aucun mot
+   de passe, aucune carte, aucune adresse. C'est le schéma des grandes
+   marques : essai anonyme plafonné, identité quand il y a de la valeur
+   (connexion du service source ou paiement), fournisseur de paiement
+   certifié pour l'argent. Rate limits en double couche : par visiteur
+   (24/10 min) + par IP (60/10 min) sur le chat, 20/10 min sur la lecture
+   Strava directe.
+10. **KV prouvé en local** : `test/kv-budget.test.mjs` lance un faux
+    serveur KV REST et des processus Node séparés (simulant plusieurs
+    instances serveur) : le processus B voit les tokens et les hits
+    comptés par A, pour le budget global, le budget visiteur et les rate
+    limits. Activation réelle (5 min) : créer un store gratuit Vercel KV
+    ou Upstash, coller `KV_REST_API_URL` + `KV_REST_API_TOKEN` dans
+    l'environnement Vercel, redéployer. Sans KV, les compteurs sont en
+    mémoire par instance (suffisant en local/démo, pas de garantie
+    globale en production multi-instances).
 
 ## 6. Photos et GPX (M2), état réel
 
