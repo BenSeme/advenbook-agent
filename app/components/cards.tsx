@@ -3,12 +3,63 @@
 import type { MouseEvent } from "react";
 import { activityBadges, isHighlight, isLikelyWarmup } from "@/lib/highlights";
 import { fmtDistance, fmtElevation, fmtPrice, t, type Lang } from "@/lib/i18n";
-import type { Activity, UiEvent } from "@/lib/chat-types";
+import type { Activity, MyBook, UiEvent } from "@/lib/chat-types";
 
 type ConnectEvent = Extract<UiEvent, { kind: "connect" }>;
 type ActivitiesEvent = Extract<UiEvent, { kind: "activities" }>;
 type BookEvent = Extract<UiEvent, { kind: "book" }>;
 type CoverEvent = Extract<UiEvent, { kind: "cover" }>;
+type MyBooksEvent = Extract<UiEvent, { kind: "mybooks" }>;
+
+export function MyBooksCard({
+  e,
+  lang,
+  busy,
+  chosenBookId,
+  onContinue,
+  onNewBook,
+}: {
+  e: MyBooksEvent;
+  lang: Lang;
+  busy: boolean;
+  chosenBookId: string;
+  onContinue: (book: MyBook) => void;
+  onNewBook: () => void;
+}) {
+  const firstDraft = e.books.find((b) => b.status === "draft");
+  return (
+    <div className="card">
+      {firstDraft && (
+        <h2>
+          {t(lang, "foundBook")
+            .replace("{title}", firstDraft.title)
+            .replace("{n}", String(firstDraft.activities))}
+        </h2>
+      )}
+      {e.books.map((b) => (
+        <div key={b.book_id} style={{ padding: "8px 0", borderTop: "1px solid var(--brand-line)" }}>
+          <p style={{ margin: "0 0 6px", fontSize: 14 }}>
+            <strong>{b.title}</strong> · {b.activities} {t(lang, "outingsWord")}
+            {b.status === "ordered" ? ` · ${t(lang, "orderedBadge")}` : ""}
+            {chosenBookId === b.book_id ? " ✓" : ""}
+          </p>
+          {b.status === "ordered" ? (
+            <p style={{ margin: 0, fontSize: 13, color: "var(--brand-muted)" }}>{t(lang, "orderedNote")}</p>
+          ) : (
+            <button className="btn" disabled={busy} onClick={() => onContinue(b)}>
+              {t(lang, "continueBookBtn")}
+            </button>
+          )}
+        </div>
+      ))}
+      <div className="row">
+        <button className="btn secondary" disabled={busy} onClick={onNewBook}>
+          {t(lang, "newBookBtn")}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function CoverCard({
   e,

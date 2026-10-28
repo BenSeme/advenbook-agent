@@ -68,6 +68,7 @@ export async function POST(req: Request) {
       connectionId?: unknown;
       confirmedIds?: unknown;
       coverPhotoUrl?: unknown;
+      continueBookId?: unknown;
     };
     turnstileToken?: unknown;
   };
@@ -99,6 +100,11 @@ export async function POST(req: Request) {
     typeof body.context?.coverPhotoUrl === "string" &&
     body.context.coverPhotoUrl.startsWith("https://")
       ? body.context.coverPhotoUrl.slice(0, 1000)
+      : undefined;
+
+  const continueBookId =
+    typeof body.context?.continueBookId === "string" && body.context.continueBookId
+      ? body.context.continueBookId.slice(0, 100)
       : undefined;
 
   const confirmedIds = Array.isArray(body.context?.confirmedIds)
@@ -135,7 +141,7 @@ export async function POST(req: Request) {
 
   try {
     const result = await withVisitorContext(visitor.id, () =>
-      runAgent(history, { connectionId, confirmedIds, coverPhotoUrl }),
+      runAgent(history, { connectionId, confirmedIds, coverPhotoUrl, continueBookId }),
     );
     countMetric("chat_turn");
     const books = result.ui.filter((e) => e.kind === "book").length;

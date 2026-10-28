@@ -1,5 +1,8 @@
 // Shared chat/UI types (page, cards, files panel).
 import type { GpxActivity } from "./gpx";
+import type { MyBook } from "./my-books";
+
+export type { MyBook };
 
 export type Activity = {
   strava_activity_id: string;
@@ -16,6 +19,7 @@ export type Activity = {
 export type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
   | { kind: "activities"; activities: Activity[] }
+  | { kind: "mybooks"; books: MyBook[] }
   | {
       kind: "cover";
       title: string;

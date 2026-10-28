@@ -8,6 +8,11 @@ import {
 } from "./book-link";
 import { del } from "@vercel/blob";
 import { chunkVolumes, filterToConfirmed } from "./selection";
+import {
+  bookEventFromAddResult,
+  normalizeBooks,
+  type MyBook,
+} from "./my-books.ts";
 
 /** After a successful book creation AdvenBook has copied the photos, so
  *  our uploaded copies can go. On failure they are kept for a retry. */
@@ -49,6 +54,7 @@ export function detectFrench(
 export type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
   | { kind: "activities"; activities: Activity[] }
+  | { kind: "mybooks"; books: MyBook[] }
   | {
       kind: "book";
       bookId: string;
@@ -77,6 +83,8 @@ const TOOL_LABELS: Record<string, string> = {
   list_strava_activities: "Reading your Strava…",
   create_adventure_book: "Creating your book draft…",
   get_book_price: "Checking the price…",
+  get_my_books: "Checking your AdvenBook books…",
+  add_to_adventure_book: "Adding to your existing book…",
 };
 
 const SYSTEM_PROMPT = `You are the AdvenBook Agent. You help an athlete turn their Strava outings into a printed AdvenBook draft.
@@ -86,6 +94,7 @@ Design intelligence — you are the art director, not a form: from the outing da
 Flow you must follow:
 0. No Strava? If the user has no Strava account (or refuses to connect), do NOT insist: switch to their typed list — ask them to type or dictate their outings (title, date, distance, elevation, duration, sport), then build the book with data_source "typed_list". (GPX files and photo drops arrive in a later milestone; say so in one line if asked.)
 1. Ask what book they want only if totally unclear. If the user expresses any book intent, do NOT ask clarifying questions first (no title/date confirmation): call connect_strava immediately in that same turn. In your reply, in the user's language, say clearly: authorise on the Strava/AdvenBook page, then COME BACK to this tab and click the connected button below (or say "done"). That page does not return here automatically. Wait until the user confirms they connected. NEVER write any link in your text — no raw URL, no markdown link like [text](url): the buttons below your message carry every link, only point to them ("avec le bouton ci-dessous" / "with the button below").
+2. Right after the connection, call get_my_books with the connection_id (language = the user's language) BEFORE listing activities. If the user has a draft book, ask in ONE sentence, in their language: I found your book <title> (<n> outings). Shall we continue it or start a new one? Then follow their answer: continue → their confirmed outings are ADDED to that book with add_to_adventure_book (book_id from get_my_books); new → create_adventure_book as usual. If their only book is already ordered, it cannot change: offer a new volume (a new book) instead. If they have no book, say nothing about it and proceed.
 3. Call list_strava_activities with the connection_id you received (filter by dates when the user names a period). Then apply same-day logic: when several activities share a date, the main one is the race / longest outing; warm-ups, cool-downs and recoveries ("échauffement", "warm up", "retour au calme", clearly much shorter same-day outings) are NOT proposed — in your text, propose only a shortlist (never dump the whole Strava list), each with a one-line reason it fits (e.g. "Tourmalet: your biggest climb of the summer"), and mention in one line that warm-ups/others are unticked in the checklist and can be re-ticked. First, open with the 2-3 outings most worth showing off ("à mettre en valeur") using the list fields: many photos (photos count), is_race, has_route with big elevation, longest distance — say why each stands out (e.g. "UTMB: course officielle, 34 photos, énorme dénivelé"). Keep this reply SHORT (a few lines max): the checklist card already shows the details, and long text above it forces endless scrolling. The user confirms/edits the selection in a checklist. After the user confirms a selection, NEVER call list_strava_activities again and NEVER add, re-add or swap outings: the confirmed list is final, and the book must contain exactly those outings — the server also enforces this mechanically. Long books: the user wants the longest book possible with their best outings — never drop confirmed outings to fit a number. AdvenBook binds one book (one create call) to at most the activities.maxItems stated in the create_adventure_book tool definition: if the confirmed list exceeds that maximum, split it chronologically into volumes of at most that many, call create_adventure_book once per volume with titles "<title> — Volume 1", "<title> — Volume 2"…, and present each volume's "Open my book" button. Do this without asking again.
 4. Interview (OPTIONAL, not the goal — the goal is the book draft): offer it, and if the user wants stories, for each chosen outing ask 1-2 short warm questions (who was there, a highlight, how they felt), one outing at a time, then write a 2-4 sentence first-person story in the user's own words. NEVER invent facts. If the user skips, or says "create directly / crée directement", use empty stories and go straight to creation.
 Photos: if the user mentions adding photos in the conversation, answer that photos already on Strava are added automatically by AdvenBook, and that dropping extra phone photos here arrives in the next milestone — do not claim you received photos you cannot see, and continue creating the book without them unless the user insists on waiting.
@@ -95,7 +104,7 @@ Photos plein écran: beautiful photos deserve full pages, not thumbnails, and YO
 5. Call create_adventure_book once per volume (usually a single volume; several only when the confirmed list exceeds the tool's activities maximum). For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) or the raw orderUrl in your text. Give the estimated price. Prices come back with both a usd and an eur field: quote EUR for users writing in French, Spanish, German, Italian or Basque, and USD only for English speakers — never quote dollars to a European user.
 Ordering: next to "Open my book" there is an "Order my book" button (the tool's orderUrl): it creates the user's account in one click, then lands on AdvenBook's secure Stripe payment page. You may point to that button in one line. NEVER ask for card details, a billing/shipping address, or any payment information in this chat — payment and address happen only on that secure page. Never say the book is ordered or paid until the user tells you they completed payment there: before that, it is still a draft.
 
-Existing AdvenBook users: if the user says they already have an AdvenBook account or a book in progress, be honest about today's limits in one or two lines: reconnecting the SAME Strava account lands in the same AdvenBook account (no duplicate), you will create a NEW draft next to their existing book, and their existing book itself continues in the AdvenBook editor on advenbook.com — you cannot reopen or modify an existing book yet (no tool exists for it), so never claim you opened, resumed or edited it. Offer the new draft (or a "Volume 2") as the way forward.
+Existing AdvenBook users: reconnecting the SAME Strava account lands in the same AdvenBook account (no duplicate). Continuing a draft means ADDING the confirmed outings with add_to_adventure_book: it only adds — it never removes outings and never overwrites texts the user already wrote in that book, so say exactly that if they worry about their existing work. After a successful add, the same "Open my book" (editorUrl) and "Order my book" (orderUrl) buttons appear. An already-ordered book cannot be changed (the tool answers book_already_ordered): offer a new volume instead, never argue.
 
 Language: reply in the user's language (English by default, French if they write in French). Be warm, brief, and concrete. If a tool errors (not connected, expired link, no activities), say what happened and what to do next.`;
 
@@ -117,6 +126,14 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
   }
   if (name === "list_strava_activities" && Array.isArray(r.activities)) {
     ui.push({ kind: "activities", activities: r.activities as Activity[] });
+  }
+  if (name === "get_my_books") {
+    const books = normalizeBooks(result);
+    if (books.length) ui.push({ kind: "mybooks", books });
+  }
+  if (name === "add_to_adventure_book") {
+    const event = bookEventFromAddResult(result);
+    if (event) ui.push(event);
   }
   if (name === "create_adventure_book" && typeof r.claimUrl === "string") {
     ui.push({
@@ -142,6 +159,7 @@ export async function runAgent(
     connectionId?: string;
     confirmedIds?: string[];
     coverPhotoUrl?: string;
+    continueBookId?: string;
   },
 ): Promise<{
   reply: string;
@@ -159,6 +177,10 @@ export async function runAgent(
   const maxPerVolume =
     (asRecord(asRecord(asRecord(createTool?.function.parameters).properties).activities)
       .maxItems as number | undefined) ?? 150;
+  const addTool = tools.find((x) => x.function.name === "add_to_adventure_book");
+  const maxPerAdd =
+    (asRecord(asRecord(asRecord(addTool?.function.parameters).properties).activities)
+      .maxItems as number | undefined) ?? maxPerVolume;
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...(context?.connectionId
@@ -174,6 +196,14 @@ export async function runAgent(
           {
             role: "system",
             content: `The user picked this cover photo (they tapped it on the cover-choice card): ${context.coverPhotoUrl}. At book creation you MUST pass it as cover_photo_url. The server also enforces it.`,
+          } as ChatMessage,
+        ]
+      : []),
+    ...(context?.continueBookId
+      ? [
+          {
+            role: "system",
+            content: `The user chose to CONTINUE their existing draft book, book_id = ${context.continueBookId}. Add their confirmed outings to it with add_to_adventure_book (strava_connection_id + this book_id + the activities). Do NOT create a new book — the server converts any create_adventure_book call into an add to this book.`,
           } as ChatMessage,
         ]
       : []),
@@ -200,10 +230,16 @@ export async function runAgent(
       } catch {
         args = {};
       }
-      if (name === "create_adventure_book") {
+      let effectiveName = name;
+      let effectiveArgs = args;
+      const isBookWrite =
+        name === "create_adventure_book" || name === "add_to_adventure_book";
+      if (isBookWrite) {
         // Deterministic fixes the model keeps missing:
-        if (french) args.language = french;
-        if (context?.coverPhotoUrl) args.cover_photo_url = context.coverPhotoUrl;
+        if (french && name === "create_adventure_book") args.language = french;
+        if (context?.coverPhotoUrl && name === "create_adventure_book") {
+          args.cover_photo_url = context.coverPhotoUrl;
+        }
         if (Array.isArray(args.activities)) {
           const filtered = filterToConfirmed(
             args.activities,
@@ -259,44 +295,78 @@ export async function runAgent(
             ).length,
           }),
         );
+        // Continuation is deterministic: if the user chose to continue
+        // their draft, ANY create becomes an add to that book (add-only
+        // server-side), and an add always targets that book.
+        if (context?.continueBookId) {
+          effectiveName = "add_to_adventure_book";
+          effectiveArgs = {
+            strava_connection_id: String(
+              args.strava_connection_id ?? context.connectionId ?? "",
+            ),
+            book_id: context.continueBookId,
+            activities: args.activities,
+          };
+        } else if (name === "add_to_adventure_book") {
+          effectiveArgs = {
+            ...args,
+            strava_connection_id: String(
+              args.strava_connection_id ?? context?.connectionId ?? "",
+            ),
+            book_id: String(args.book_id ?? ""),
+          };
+        }
       }
       let result: unknown;
       try {
         // Deterministic volume splitting: if the model sends more than the
         // live maximum in one call, split chronologically and create each
         // volume here — the model cannot drop or merge outings.
+        const writeMax =
+          effectiveName === "add_to_adventure_book" ? maxPerAdd : maxPerVolume;
         if (
-          name === "create_adventure_book" &&
-          Array.isArray(args.activities) &&
-          args.activities.length > maxPerVolume
+          isBookWrite &&
+          Array.isArray(effectiveArgs.activities) &&
+          effectiveArgs.activities.length > writeMax
         ) {
-          const all = args.activities;
-          const baseTitle = String(args.title ?? "AdvenBook");
+          const all = effectiveArgs.activities;
+          const baseTitle = String(effectiveArgs.title ?? "AdvenBook");
           const results: unknown[] = [];
-          const chunks = chunkVolumes(all, maxPerVolume);
+          const chunks = chunkVolumes(all, writeMax);
           for (let vi = 0; vi < chunks.length; vi++) {
-            const volArgs = {
-              ...args,
-              title: `${baseTitle} — Volume ${vi + 1}`,
-              activities: chunks[vi],
-            };
-            const volResult = await callMcpTool(name, volArgs);
-            extractUi(name, volResult, ui);
-            if (typeof asRecord(volResult).claimUrl === "string") {
+            const volArgs =
+              effectiveName === "add_to_adventure_book"
+                ? { ...effectiveArgs, activities: chunks[vi] }
+                : {
+                    ...effectiveArgs,
+                    title: `${baseTitle} — Volume ${vi + 1}`,
+                    activities: chunks[vi],
+                  };
+            const volResult = await callMcpTool(effectiveName, volArgs);
+            extractUi(effectiveName, volResult, ui);
+            const vr = asRecord(volResult);
+            if (
+              typeof vr.claimUrl === "string" ||
+              typeof vr.editorUrl === "string"
+            ) {
               await deleteUploadedPhotos(volArgs);
             }
             results.push(volResult);
           }
           result = { volumes: results };
         } else {
-          result = await callMcpTool(name, args);
-          extractUi(name, result, ui);
-          if (name === "create_adventure_book") {
+          result = await callMcpTool(effectiveName, effectiveArgs);
+          extractUi(effectiveName, result, ui);
+          if (isBookWrite) {
             const r = asRecord(result);
-            // Only on real success (a claim link came back): AdvenBook has
-            // copied the photos, delete our uploads. On any failure, keep them.
-            if (typeof r.claimUrl === "string") {
-              await deleteUploadedPhotos(args);
+            // Only on real success (a claim/editor link came back):
+            // AdvenBook has copied the photos, delete our uploads.
+            // On any failure, keep them.
+            if (
+              typeof r.claimUrl === "string" ||
+              typeof r.editorUrl === "string"
+            ) {
+              await deleteUploadedPhotos(effectiveArgs);
             }
           }
         }

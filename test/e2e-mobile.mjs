@@ -49,7 +49,21 @@ try {
   page.on("request", (req) => {
     const url = req.url();
     if (url.endsWith("/api/strava/activities")) {
-      return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ activities: acts }) });
+      return req.respond({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          activities: acts,
+          books: [{
+            book_id: "BK1",
+            title: "Été 2025",
+            status: "draft",
+            activities: 12,
+            editorUrl: "https://www.advenbook.com/fr/my-book/creer?bookId=BK1",
+            orderUrl: "https://www.advenbook.com/fr/my-book/order?bookId=BK1",
+          }],
+        }),
+      });
     }
     if (url.endsWith("/api/photos/select")) {
       // Keep all but the last photo, drop it — the whole batch must
@@ -115,6 +129,18 @@ try {
   await page.evaluate(() => {
     [...document.querySelectorAll("button")].find((b) => b.innerText.includes("Continuer"))?.click();
   });
+  // Existing draft found right after connection: continue-or-new card.
+  await page.waitForFunction(
+    () => document.body.innerText.includes("Je retrouve votre livre « Été 2025 » (12 sorties)"),
+    { timeout: 15000 },
+  );
+  await page.evaluate(() => {
+    [...document.querySelectorAll("button")].find((b) => b.innerText.includes("Continuer ce livre"))?.click();
+  });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("Je continue mon livre « Été 2025 »"),
+    { timeout: 15000 },
+  );
   await page.waitForFunction(() => document.body.innerText.includes("cochées sur 89"), { timeout: 15000 });
   const checked = await page.evaluate(
     () => [...document.querySelectorAll("main")].length >= 0 && document.body.innerText.match(/(\d+) cochées sur 89/)?.[1],

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { callMcpTool } from "@/lib/mcp";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { logError } from "@/lib/monitor";
+import { normalizeBooks } from "@/lib/my-books";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,12 +19,16 @@ export async function POST(req: Request) {
       { status: 429 },
     );
   }
-  let body: { connectionId?: unknown };
+  let body: { connectionId?: unknown; lang?: unknown };
   try {
-    body = (await req.json()) as { connectionId?: unknown };
+    body = (await req.json()) as { connectionId?: unknown; lang?: unknown };
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+  const lang =
+    typeof body.lang === "string" && ["en", "fr", "es", "de", "it", "eu"].includes(body.lang)
+      ? body.lang
+      : "en";
   const connectionId =
     typeof body.connectionId === "string" ? body.connectionId.trim() : "";
   if (!connectionId) {
@@ -47,7 +52,20 @@ export async function POST(req: Request) {
       typeof result === "object" && result !== null && Array.isArray(result.activities)
         ? result.activities
         : [];
-    return NextResponse.json({ activities });
+    // Right after the connection: does this account already have books?
+    // Non-fatal — a failure here must never block reading the outings.
+    let books: ReturnType<typeof normalizeBooks> = [];
+    try {
+      books = normalizeBooks(
+        await callMcpTool("get_my_books", {
+          connection_id: connectionId,
+          language: lang,
+        }),
+      );
+    } catch (err) {
+      logError("get-my-books", err);
+    }
+    return NextResponse.json({ activities, books });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Strava reading failed.";
     logError("strava-activities", err);

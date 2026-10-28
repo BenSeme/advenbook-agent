@@ -17,6 +17,17 @@ test("connect card is fully translated in every language", () => {
   assert.match(t("fr", "connectStep1"), /Cliquez/);
 });
 
+test("existing-book card is translated in every language", () => {
+  for (const l of LANGS) {
+    assert.ok(t(l, "foundBook").includes("{title}"), l);
+    assert.ok(t(l, "continueBookBtn").length > 3, l);
+    assert.ok(t(l, "newBookBtn").length > 3, l);
+    assert.ok(t(l, "coverTitle").length > 5, l);
+    assert.ok(t(l, "coverIntro").length > 20, l);
+  }
+  assert.match(t("fr", "foundBook"), /Je retrouve votre livre/);
+});
+
 test("every language has an Order my book label and note", () => {
   for (const l of LANGS) {
     assert.ok(t(l, "orderBook").length > 3, l);

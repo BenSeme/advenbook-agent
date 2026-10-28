@@ -1,5 +1,19 @@
 # Consigne pour le développement AdvenBook (à coller à Claude côté AdvenBook)
 
+> **FAIT — mis en production côté AdvenBook, branché côté agent.**
+> Le MCP expose désormais `get_my_books({connection_id, language})` et
+> `add_to_adventure_book({strava_connection_id, book_id, activities})`
+> (ajout seul : ne retire rien, n'écrase aucun texte existant, erreur
+> `book_already_ordered` sur un livre commandé). Côté agent : appel de
+> `get_my_books` juste après la connexion Strava (parcours bouton
+> déterministe et parcours modèle), carte « Je retrouve votre livre
+> <titre> (<n> sorties). On continue celui-ci, ou on en commence un
+> nouveau ? », continuation convertie de façon déterministe en
+> `add_to_adventure_book` (même si le modèle appelle la création), et
+> carte livre finale avec `editorUrl` (Ouvrir mon livre) et `orderUrl`
+> (Commander mon livre). Le reste de cette note est conservé comme
+> historique de la demande.
+
 *Objet : permettre à l'agent conversationnel (advenbook-agent) de savoir
 d'où vient l'utilisateur — compte existant ou non, livre existant ou
 non — et de modifier un livre existant. Aujourd'hui impossible : le MCP

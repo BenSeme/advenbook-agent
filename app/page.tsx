@@ -19,12 +19,13 @@ import type {
   Activity,
   ManualActivity,
   Msg,
+  MyBook,
   PhotoItem,
   UiEvent,
 } from "@/lib/chat-types";
 import { fileToDataUrl, fullDataUrl } from "@/lib/files";
 import { encodeWav } from "@/lib/voice";
-import { ActivitiesCard, BookCard, ConnectCard, CoverCard } from "./components/cards";
+import { ActivitiesCard, BookCard, ConnectCard, CoverCard, MyBooksCard } from "./components/cards";
 import { FilesPanel } from "./components/FilesPanel";
 
 const GREETING: Msg = {
@@ -100,6 +101,8 @@ export default function Home() {
   const [challenge, setChallenge] = useState<{ text: string; display?: string } | null>(null);
   const [coverUrl, setCoverUrl] = useState("");
   const coverUrlRef = useRef("");
+  const [continueBookId, setContinueBookId] = useState("");
+  const continueBookIdRef = useRef("");
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -143,10 +146,11 @@ export default function Home() {
       const res = await fetch("/api/strava/activities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId }),
+        body: JSON.stringify({ connectionId, lang }),
       });
       const data = (await res.json()) as {
         activities?: Activity[];
+        books?: MyBook[];
         error?: string;
       };
       if (!res.ok || data.error) {
@@ -162,9 +166,24 @@ export default function Home() {
         return;
       }
       const activities = data.activities ?? [];
+      const books = data.books ?? [];
       setSelected(suggestedSelection(activities));
+      const firstDraft = books.find((b) => b.status === "draft");
       setMessages([
         ...base,
+        ...(books.length
+          ? [
+              {
+                role: "assistant" as const,
+                content: firstDraft
+                  ? t(lang, "foundBook")
+                      .replace("{title}", firstDraft.title)
+                      .replace("{n}", String(firstDraft.activities))
+                  : t(lang, "orderedNote"),
+                ui: [{ kind: "mybooks" as const, books }],
+              },
+            ]
+          : []),
         {
           role: "assistant",
           content:
@@ -539,6 +558,7 @@ export default function Home() {
             ...(connectionId ? { connectionId } : {}),
             ...(confirmedIds.length ? { confirmedIds } : {}),
             ...(coverUrlRef.current ? { coverPhotoUrl: coverUrlRef.current } : {}),
+            ...(continueBookIdRef.current ? { continueBookId: continueBookIdRef.current } : {}),
           },
           ...(turnstileToken ? { turnstileToken } : {}),
         }),
@@ -749,6 +769,35 @@ export default function Home() {
                       setSelected((prev) => ({ ...prev, [a.strava_activity_id]: checked }))
                     }
                     onConfirm={(skip) => confirmSelection(skip)}
+                  />
+                );
+              }
+              if (e.kind === "mybooks") {
+                return (
+                  <MyBooksCard
+                    key={j}
+                    e={e}
+                    lang={lang}
+                    busy={busy}
+                    chosenBookId={continueBookId}
+                    onContinue={(book) => {
+                      continueBookIdRef.current = book.book_id;
+                      setContinueBookId(book.book_id);
+                      void send(
+                        `Je continue mon livre existant « ${book.title} » (book_id ${book.book_id}) : ajoute les sorties confirmées à CE livre avec add_to_adventure_book, sans rien retirer ni écraser ses textes.`,
+                        lang === "en"
+                          ? `Continuing my book “${book.title}”`
+                          : `Je continue mon livre « ${book.title} »`,
+                      );
+                    }}
+                    onNewBook={() => {
+                      continueBookIdRef.current = "";
+                      setContinueBookId("");
+                      void send(
+                        "Je commence un nouveau livre, pas celui qui existe déjà.",
+                        lang === "en" ? "Starting a new book" : "Je commence un nouveau livre",
+                      );
+                    }}
                   />
                 );
               }
