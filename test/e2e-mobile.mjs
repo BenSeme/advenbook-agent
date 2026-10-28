@@ -4,7 +4,8 @@
 // engine-level behaviour is covered by API tests elsewhere.
 //   npm run build && npm run start -- -p 3100 &  npm run test:e2e
 import puppeteer from "puppeteer-core";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 
 const CANDIDATES = [
@@ -49,6 +50,27 @@ try {
     const url = req.url();
     if (url.endsWith("/api/strava/activities")) {
       return req.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ activities: acts }) });
+    }
+    if (url.endsWith("/api/photos/select")) {
+      // Keep all but the last photo, drop it — the whole batch must
+      // still leave the dropzone once used.
+      const sent = JSON.parse(req.postData() || "{}");
+      const ids = (sent.images ?? []).map((i) => i.id);
+      return req.respond({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          keep: ids.slice(0, -1).map((id) => ({ id, reason: "nette" })),
+          drop: ids.slice(-1),
+        }),
+      });
+    }
+    if (url.endsWith("/api/photos/process")) {
+      return req.respond({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ url: "https://example.com/photo.jpg" }),
+      });
     }
     if (url.endsWith("/api/chat")) {
       return req.respond({
@@ -123,7 +145,35 @@ try {
   assert.ok(order, "Order my book button present next to Open my book");
   assert.equal(order.href, "https://www.advenbook.com/fr/my-book/order?bookId=B1");
   assert.equal(order.target, "_blank", "order opens in a new tab, agent page stays");
-  console.log(`E2E OK — fps=${fps}, ticked=${checked}/89, checkboxes=${boxes}, orderBtn=${order.href}`);
+
+  // Photos: add 4, use them (AI keeps 3, drops 1) — the whole batch
+  // must leave the dropzone, dropped one included.
+  const photoDir = mkdtempSync(join(process.cwd(), ".e2e-photos-"));
+  try {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const files = [1, 2, 3, 4].map((n) => {
+      const f = join(photoDir, `photo${n}.png`);
+      writeFileSync(f, png);
+      return f;
+    });
+    const photoInput = await page.$('input[type="file"][accept="image/*"]');
+    assert.ok(photoInput, "photo file input present");
+    await photoInput.uploadFile(...files);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".photo-strip img").length === 4,
+      { timeout: 15000 },
+    );
+    await page.evaluate(() => {
+      [...document.querySelectorAll("button")].find((b) => b.innerText.includes("Utiliser ces photos"))?.click();
+    });
+    await page.waitForFunction(() => !document.querySelector(".photo-strip"), { timeout: 20000 });
+    console.log(`E2E OK — fps=${fps}, ticked=${checked}/89, checkboxes=${boxes}, orderBtn=${order.href}, photosCleared=4/4`);
+  } finally {
+    rmSync(photoDir, { recursive: true, force: true });
+  }
 } finally {
   await browser.close();
 }

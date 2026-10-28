@@ -22,6 +22,8 @@ export function FilesPanel({
   onTogglePhotosOpen,
   onAssignPhoto,
   onPreparePhotos,
+  onRemovePhoto,
+  onClearPhotos,
 }: {
   lang: Lang;
   device: DeviceKind;
@@ -38,6 +40,8 @@ export function FilesPanel({
   onTogglePhotosOpen: () => void;
   onAssignPhoto: (id: string, activityId: string) => void;
   onPreparePhotos: () => void;
+  onRemovePhoto: (id: string) => void;
+  onClearPhotos: () => void;
 }) {
   const hint =
     device === "iphone"
@@ -126,13 +130,37 @@ export function FilesPanel({
         <>
           <div className="photo-strip" aria-label="Photos ajoutées">
             {photos.map((p) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={p.id}
-                src={p.thumb}
-                alt={p.name}
-                title={`${p.name} — ${p.kept === true ? "gardée" : p.kept === false ? "écartée" : "ajoutée"}${p.reason ? ` : ${p.reason}` : ""}`}
-              />
+              <span key={p.id} style={{ position: "relative", flex: "none" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={p.thumb}
+                  alt={p.name}
+                  title={`${p.name} — ${p.kept === true ? "gardée" : p.kept === false ? "écartée" : "ajoutée"}${p.reason ? ` : ${p.reason}` : ""}`}
+                />
+                <button
+                  type="button"
+                  aria-label={`${t(lang, "remove")} ${p.name}`}
+                  title={t(lang, "remove")}
+                  onClick={() => onRemovePhoto(p.id)}
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 2,
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    border: "1px solid var(--brand-line)",
+                    background: "var(--brand-card)",
+                    color: "var(--brand-ink)",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                    fontSize: 13,
+                    padding: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </span>
             ))}
             <span style={{ fontSize: 13, alignSelf: "center" }}>
               {photos.length} photo(s)
@@ -145,6 +173,13 @@ export function FilesPanel({
               aria-expanded={photosOpen}
             >
               {photosOpen ? "Masquer le détail" : "Détail / ranger"}
+            </button>
+            <button
+              className="btn secondary"
+              style={{ minHeight: 36, padding: "6px 10px" }}
+              onClick={onClearPhotos}
+            >
+              {lang === "en" ? "Clear all" : "Tout retirer"}
             </button>
           </div>
           {photosOpen && (

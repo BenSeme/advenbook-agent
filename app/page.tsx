@@ -348,16 +348,30 @@ export default function Home() {
       }
       if (free.length) lines.push(`- Photos libres : ${free.join(", ")}`);
       if (lines.length === 0) throw new Error("Aucune photo envoyée");
-      // Prepared photos leave the dropzone: they belong to the book now.
-      // Only photos whose upload failed stay, with their status visible.
-      setPhotos((prev) => prev.filter((p) => !uploaded.has(p.id)));
-      for (const id of uploaded.keys()) photoFiles.current.delete(id);
+      // Once used, EVERY photo of the batch leaves the dropzone: the
+      // uploaded ones belong to the book now, and the ones the AI dropped
+      // were considered and rejected — keeping them on screen trapped
+      // the user in a re-analyse loop. Only photos the AI kept but whose
+      // upload failed stay, with their status visible for a retry.
+      const droppedCount = photos.filter(
+        (p) => !keepIds.has(p.id),
+      ).length;
+      const removed = photos.filter(
+        (p) => uploaded.has(p.id) || !keepIds.has(p.id),
+      );
+      for (const p of removed) {
+        URL.revokeObjectURL(p.thumb);
+        photoFiles.current.delete(p.id);
+      }
+      setPhotos((prev) =>
+        prev.filter((p) => keepIds.has(p.id) && !uploaded.has(p.id)),
+      );
       setPhotosOpen(false);
       await send(
         `Voici les photos préparées pour le livre (garde/photo_urls, recopie les liens sans les modifier). Rattachées :\n${lines.join("\n")}\nPlace toi-même les photos libres (rattachées à la bonne sortie, en pleine page, ou en page photo à part) et dis-moi en une ligne ce que tu as fait. Au moins 25% des photos en pleine page, sur au moins 25% des sorties qui ont des photos.`,
         lang === "en"
-          ? `${uploaded.size} photo(s) ready — placing them in the book.`
-          : `${uploaded.size} photo(s) prête(s) — je les place dans le livre.`,
+          ? `${uploaded.size} photo(s) ready${droppedCount ? `, ${droppedCount} dropped by the AI` : ""} — placing them in the book.`
+          : `${uploaded.size} photo(s) prête(s)${droppedCount ? `, ${droppedCount} écartée(s) par l’IA` : ""} — je les place dans le livre.`,
       );
     } catch (err) {
       setMessages((msgs) => [
@@ -752,6 +766,20 @@ export default function Home() {
           setPhotos((prev) => prev.map((x) => (x.id === id ? { ...x, activityId } : x)))
         }
         onPreparePhotos={() => void preparePhotos()}
+        onRemovePhoto={(id) => {
+          setPhotos((prev) => {
+            const target = prev.find((p) => p.id === id);
+            if (target) URL.revokeObjectURL(target.thumb);
+            return prev.filter((p) => p.id !== id);
+          });
+          photoFiles.current.delete(id);
+        }}
+        onClearPhotos={() => {
+          for (const p of photos) URL.revokeObjectURL(p.thumb);
+          for (const p of photos) photoFiles.current.delete(p.id);
+          setPhotos([]);
+          setPhotosOpen(false);
+        }}
       />
 
       {challenge && (
