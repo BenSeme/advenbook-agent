@@ -138,8 +138,11 @@ https://www.advenbook.com/api/mcp
   Strava…" or "Choosing your best photos…". Never leave a frozen screen.
 - Handle errors honestly: Strava not connected yet, link expired, no activities in that period,
   photo upload failed. Say what happened and what to do.
-- Commit after each working step with a clear message. Do not push. The founder will create the
-  GitHub repo and connect Vercel.
+- Commit after each working step with a clear message. The app is LIVE: `origin` is the
+  founder's private GitHub repo, and every push to `main` deploys to production
+  (https://advenbook-agent.vercel.app, linked from advenbook.com, real visitors). Push only after
+  `npm run build` and the tests pass. Never run `vercel` deploy commands and never change Vercel
+  settings or env vars: the founder's assistant handles deployment.
 - Work in small steps: credits are limited (Muse Wonder is billed per token). Do not rewrite
   working code without a reason.
 
