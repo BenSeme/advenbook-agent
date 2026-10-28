@@ -7,7 +7,7 @@ import {
   stripAdvenBookUrls,
 } from "./book-link";
 import { del } from "@vercel/blob";
-import { filterToConfirmed } from "./selection";
+import { chunkVolumes, filterToConfirmed } from "./selection";
 
 /** After a successful book creation AdvenBook has copied the photos, so
  *  our uploaded copies can go. On failure they are kept for a retry. */
@@ -136,6 +136,11 @@ export async function runAgent(
   const toolEvents: ToolEvent[] = [];
   const polylineById = new Map<string, string>();
   const french = detectFrench(history);
+  // The book-size ceiling comes from the live tool schema, never hard-coded.
+  const createTool = tools.find((x) => x.function.name === "create_adventure_book");
+  const maxPerVolume =
+    (asRecord(asRecord(asRecord(createTool?.function.parameters).properties).activities)
+      .maxItems as number | undefined) ?? 150;
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...(context?.connectionId
@@ -230,14 +235,42 @@ export async function runAgent(
       }
       let result: unknown;
       try {
-        result = await callMcpTool(name, args);
-        extractUi(name, result, ui);
-        if (name === "create_adventure_book") {
-          const r = asRecord(result);
-          // Only on real success (a claim link came back): AdvenBook has
-          // copied the photos, delete our uploads. On any failure, keep them.
-          if (typeof r.claimUrl === "string") {
-            await deleteUploadedPhotos(args);
+        // Deterministic volume splitting: if the model sends more than the
+        // live maximum in one call, split chronologically and create each
+        // volume here — the model cannot drop or merge outings.
+        if (
+          name === "create_adventure_book" &&
+          Array.isArray(args.activities) &&
+          args.activities.length > maxPerVolume
+        ) {
+          const all = args.activities;
+          const baseTitle = String(args.title ?? "AdvenBook");
+          const results: unknown[] = [];
+          const chunks = chunkVolumes(all, maxPerVolume);
+          for (let vi = 0; vi < chunks.length; vi++) {
+            const volArgs = {
+              ...args,
+              title: `${baseTitle} — Volume ${vi + 1}`,
+              activities: chunks[vi],
+            };
+            const volResult = await callMcpTool(name, volArgs);
+            extractUi(name, volResult, ui);
+            if (typeof asRecord(volResult).claimUrl === "string") {
+              await deleteUploadedPhotos(volArgs);
+            }
+            results.push(volResult);
+          }
+          result = { volumes: results };
+        } else {
+          result = await callMcpTool(name, args);
+          extractUi(name, result, ui);
+          if (name === "create_adventure_book") {
+            const r = asRecord(result);
+            // Only on real success (a claim link came back): AdvenBook has
+            // copied the photos, delete our uploads. On any failure, keep them.
+            if (typeof r.claimUrl === "string") {
+              await deleteUploadedPhotos(args);
+            }
           }
         }
         if (name === "list_strava_activities") {

@@ -139,7 +139,21 @@ sont appliquées dans le code, testées, et doivent le rester :
    `DAILY_TOKEN_BUDGET` (défaut 5 000 000 ; au-delà, 503 « budget du jour
    atteint », zéro appel modèle — vérifié en réel avec un plafond à 100).
    Compteur en mémoire : remis à zéro au redémarrage du serveur.
-6. **Budget serveur** : pour tester le plafond, écrire
+6. **Volumes déterministes** : si un appel de création dépasse le
+   `maxItems` lu dans le schéma live de l'outil, le serveur découpe
+   lui-même en volumes chronologiques (`chunkVolumes`,
+   [lib/selection.ts](../lib/selection.ts)) et crée chaque volume — le
+   modèle ne peut ni fusionner ni perdre de sorties.
+7. **Budget partagé** : avec `KV_REST_API_URL`/`KV_REST_API_TOKEN` (ou
+   Upstash) configurés, budget quotidien et rate limits passent par le
+   store partagé (toutes instances) ; sans lui, compteurs en mémoire.
+   L'interface est découpée : `app/components/cards.tsx` (cartes),
+   `app/components/FilesPanel.tsx` (GPX/photos), `lib/voice.ts`,
+   `lib/files.ts`, `lib/chat-types.ts` — `app/page.tsx` ne garde que
+   l'état et l'orchestration. Un test navigateur commité
+   (`npm run test:e2e`, Chrome/Edge requis, viewport 360 px) couvre
+   chargement, FPS et liste complète.
+8. **Budget serveur** : pour tester le plafond, écrire
    `DAILY_TOKEN_BUDGET=100` dans `.env.local` (via un vrai éditeur —
    `echo X=1>> fichier` en cmd mange le `1` comme descripteur), redémarrer,
    le 2ᵉ appel doit être 503 sans nouvelle ligne `llm usage`.

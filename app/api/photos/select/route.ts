@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  if (rateLimited(`photos-select:${clientIp(req)}`, 12, 10 * 60 * 1000)) {
+  if (await rateLimited(`photos-select:${clientIp(req)}`, 12, 10 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many photo analyses — retry in a few minutes." }, { status: 429 });
   }
   let body: { outingTitle?: unknown; images?: unknown };

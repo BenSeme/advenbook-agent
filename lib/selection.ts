@@ -6,6 +6,14 @@ function asRecord(v: unknown): Record<string, unknown> {
 
 /** A book can only contain outings the user confirmed. Activities
  *  without a Strava id (typed list / GPX) are left untouched. */
+/** Split a confirmed list into chronological volumes of at most `max`. */
+export function chunkVolumes<T>(items: T[], max: number): T[][] {
+  const size = Number.isFinite(max) && max > 0 ? Math.floor(max) : items.length || 1;
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 export function filterToConfirmed(
   activities: unknown[],
   confirmedIds: string[] | undefined,

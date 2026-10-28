@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { activityBadges, isHighlight } from "@/lib/highlights";
+import { activityBadges, isHighlight, isLikelyWarmup } from "@/lib/highlights";
 import {
   t,
   LANGS,
@@ -13,80 +13,19 @@ import {
   fmtPrice,
   type Lang,
 } from "@/lib/i18n";
-import { parseGpx, type GpxActivity } from "@/lib/gpx";
+import { parseGpx } from "@/lib/gpx";
 import exifr from "exifr";
-
-type ManualActivity = GpxActivity & { id: string };
-type PhotoItem = {
-  id: string;
-  name: string;
-  thumb: string;
-  exifDate: string | null;
-  activityId: string;
-  kept: boolean | null;
-  reason?: string;
-  uploadedUrl?: string;
-  status?: string;
-};
-
-async function fileToDataUrl(file: File, maxDim = 900): Promise<string> {
-  try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
-  } catch {
-    return await new Promise<string>((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-  }
-}
-
-function fullDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
-type Activity = {
-  strava_activity_id: string;
-  title: string;
-  date: string;
-  sport?: string;
-  distance_km?: number;
-  elevation_gain_m?: number;
-  photos?: number;
-  has_route?: boolean;
-  is_race?: boolean;
-};
-
-type UiEvent =
-  | { kind: "connect"; connectUrl: string; connectionId: string }
-  | { kind: "activities"; activities: Activity[] }
-  | {
-      kind: "book";
-      bookId: string;
-      claimUrl: string;
-      editorUrl?: string;
-      estimatedPages?: number;
-      price?: unknown;
-    };
-
-type Msg = {
-  role: "user" | "assistant";
-  content: string;
-  display?: string;
-  ui?: UiEvent[];
-};
+import type {
+  Activity,
+  ManualActivity,
+  Msg,
+  PhotoItem,
+  UiEvent,
+} from "@/lib/chat-types";
+import { fileToDataUrl, fullDataUrl } from "@/lib/files";
+import { encodeWav } from "@/lib/voice";
+import { ActivitiesCard, BookCard, ConnectCard } from "./components/cards";
+import { FilesPanel } from "./components/FilesPanel";
 
 const GREETING: Msg = {
   role: "assistant",
@@ -94,78 +33,18 @@ const GREETING: Msg = {
     "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre. Pas de Strava ? Dites-le-moi : on partira d’une liste que vous me dictez.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language. No Strava? Just say so — we’ll use a list you dictate.",
 };
 
-const WARMUP_RE =
-  /échauffement|echauffement|warm.?up|cooldown|cool down|retour au calme|récup|recup|recovery|déblocage|deblocage/i;
-
 /** Same-day rule: main outing ticked, warm-ups unticked. No count cap. */
 function suggestedSelection(
   activities: Activity[],
 ): Record<string, boolean> {
-  const byDate = new Map<string, Activity[]>();
-  for (const a of activities) {
-    byDate.set(a.date, [...(byDate.get(a.date) ?? []), a]);
-  }
   const out: Record<string, boolean> = {};
   for (const a of activities) {
-    const sameDay = byDate.get(a.date) ?? [];
-    const longest = Math.max(...sameDay.map((x) => x.distance_km ?? 0));
-    const isWarmup =
-      sameDay.length > 1 &&
-      (WARMUP_RE.test(a.title) ||
-        ((a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) < longest * 0.35)) &&
-      (a.distance_km ?? 0) < longest;
-    out[a.strava_activity_id] = !isWarmup;
+    out[a.strava_activity_id] = !isLikelyWarmup(a, activities);
   }
   return out;
 }
 
-function isLikelyWarmup(
-  a: Activity,
-  activities: Activity[],
-): boolean {
-  const sameDay = activities.filter((x) => x.date === a.date);
-  if (sameDay.length < 2) return false;
-  const longest = Math.max(...sameDay.map((x) => x.distance_km ?? 0));
-  return (
-    (WARMUP_RE.test(a.title) ||
-      ((a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) < longest * 0.35)) &&
-    (a.distance_km ?? 0) < longest
-  );
-}
 
-/** Encode mono Float32 samples as a 16 kHz 16-bit PCM WAV (Voice API format). */
-function encodeWav(samples: Float32Array, inputRate: number): ArrayBuffer {
-  const ratio = inputRate / 16000;
-  const outLength = Math.floor(samples.length / ratio);
-  const pcm = new Int16Array(outLength);
-  for (let i = 0; i < outLength; i++) {
-    const s = Math.max(-1, Math.min(1, samples[Math.floor(i * ratio)]));
-    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-  }
-  const buffer = new ArrayBuffer(44 + pcm.length * 2);
-  const view = new DataView(buffer);
-  const writeStr = (off: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
-  };
-  writeStr(0, "RIFF");
-  view.setUint32(4, 36 + pcm.length * 2, true);
-  writeStr(8, "WAVEfmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, 16000, true);
-  view.setUint32(28, 32000, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeStr(36, "data");
-  view.setUint32(40, pcm.length * 2, true);
-  pcm.forEach((v, i) => view.setInt16(44 + i * 2, v, true));
-  return buffer;
-}
-
-function formatPrice(price: unknown, lang: Lang): string | null {
-  return fmtPrice(price, lang);
-}
 
 export default function Home() {
   const [device, setDevice] = useState<DeviceKind>("desktop");
@@ -737,185 +616,40 @@ export default function Home() {
             {(m.ui ?? []).map((e, j) => {
               if (e.kind === "connect") {
                 return (
-                  <div className="card" key={j}>
-                    <h2>{t(lang, "connectTitle")}</h2>
-                    <ol style={{ margin: "0 0 12px", paddingLeft: 20, fontSize: 14, lineHeight: 1.6 }}>
-                      <li>Click “Connect Strava” below and authorise on Strava. That page is AdvenBook’s — it will not bring you back here by itself.</li>
-                      <li>Come back here: at the top of your browser, click the other tab (« AdvenBook Agent » / localhost) — or close the Strava tab with its ×. This page stays open underneath, nothing is lost.</li>
-                      <li>Click “I’ve connected — continue”. I’ll then read your outings.</li>
-                    </ol>
-                    <div className="row" style={{ marginTop: 0 }}>
-                      <a className="btn" href={e.connectUrl} target="_blank" rel="noreferrer">
-                        {t(lang, "connectBtn")}
-                      </a>
-                      <button
-                        className="btn secondary"
-                        disabled={busy}
-                        onClick={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
-                      >
-                        {t(lang, "connectedBtn")}
-                      </button>
-                    </div>
-                    <p style={{ margin: "10px 0 0", fontSize: 12, color: "#5a6b52" }}>
-                      Link valid 24 hours. If reading fails, the authorisation may not have finished — reconnect, then click continue again.
-                    </p>
-                  </div>
+                  <ConnectCard
+                    key={j}
+                    e={e}
+                    lang={lang}
+                    busy={busy}
+                    onConnected={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
+                  />
                 );
               }
               if (e.kind === "activities") {
-                const chosenCount = e.activities.filter(
-                  (a) => selected[a.strava_activity_id],
-                ).length;
-                const highlights = e.activities.filter(isHighlight);
                 return (
-                  <div className="card" key={j}>
-                    <h2>{t(lang, "outingsTitle")}</h2>
-                    <p style={{ margin: "0 0 6px", fontSize: 14 }}>
-                      <strong>{chosenCount} {t(lang, "ticked")}</strong> {t(lang, "on")} {e.activities.length}
-                      {highlights.length > 0
-                        ? ` · ${highlights.length} ${t(lang, "toHighlight")}`
-                        : ""}
-                      . Course de chaque jour cochée, échauffements décochés — vous pouvez
-                      tout valider tel quel, sans ouvrir la liste.
-                    </p>
-                    {highlights.length > 0 && (
-                      <p style={{ margin: "0 0 6px", fontSize: 13 }}>
-                        {highlights
-                          .slice(0, 3)
-                          .map((a) => a.title)
-                          .join(" · ")}
-                        {highlights.length > 3 ? "…" : ""}
-                      </p>
-                    )}
-                    <button
-                      className="btn secondary"
-                      onClick={() => setListOpen((v) => !v)}
-                      aria-expanded={listOpen}
-                    >
-                      {listOpen
-                        ? t(lang, "hideList")
-                        : `${t(lang, "showList")} (${e.activities.length})`}
-                    </button>
-                    {listOpen &&
-                      e.activities.map((a) => (
-                      <label
-                        className={isHighlight(a) ? "check highlight" : "check"}
-                        key={a.strava_activity_id}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!selected[a.strava_activity_id]}
-                          onChange={(ev) =>
-                            setSelected((s) => ({
-                              ...s,
-                              [a.strava_activity_id]: ev.target.checked,
-                            }))
-                          }
-                        />
-                        <span>
-                          {a.title}
-                          {isHighlight(a) && (
-                            <span className="badges">
-                              <span className="badge star">À mettre en valeur</span>
-                              {activityBadges(a).map((b) => (
-                                <span className="badge" key={b}>{b}</span>
-                              ))}
-                            </span>
-                          )}
-                          <small>
-                            {a.date}
-                            {a.sport ? ` · ${a.sport}` : ""}
-                            {a.distance_km != null ? ` · ${fmtDistance(a.distance_km, lang)}` : ""}
-                            {a.elevation_gain_m != null ? ` · ${fmtElevation(a.elevation_gain_m, lang)}` : ""}
-                            {isLikelyWarmup(a, e.activities)
-                              ? " · échauffement probable — décoché par défaut"
-                              : ""}
-                          </small>
-                        </span>
-                      </label>
-                    ))}
-                    <div className="row">
-                      <button
-                        className="btn"
-                        disabled={busy || !latestActivities}
-                        onClick={() => confirmSelection(false)}
-                      >
-                        {t(lang, "continueSelected")}
-                      </button>
-                      <button
-                        className="btn secondary"
-                        disabled={busy || !latestActivities}
-                        onClick={() => confirmSelection(true)}
-                      >
-                        {t(lang, "skipCreate")}
-                      </button>
-                    </div>
-                  </div>
+                  <ActivitiesCard
+                    key={j}
+                    e={e}
+                    lang={lang}
+                    busy={busy}
+                    listOpen={listOpen}
+                    onToggleList={() => setListOpen((v) => !v)}
+                    selected={selected}
+                    onToggleActivity={(a, checked) =>
+                      setSelected((prev) => ({ ...prev, [a.strava_activity_id]: checked }))
+                    }
+                    onConfirm={(skip) => confirmSelection(skip)}
+                  />
                 );
               }
               return (
-                <div className="card book" key={j}>
-                  <h2>{t(lang, "bookReady")}</h2>
-                  <p className="price">
-                    {e.estimatedPages ? `~${e.estimatedPages} ${t(lang, "aboutPages")}. ` : ""}
-                    {formatPrice(e.price, lang)
-                      ? `${t(lang, "estPrice")} : ${formatPrice(e.price, lang)}. `
-                      : ""}
-                    {t(lang, "draftNote")}
-                  </p>
-                  <div className="row" style={{ marginTop: 0 }}>
-                    <a
-                      className="btn cta"
-                      href={e.editorUrl ?? e.claimUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(ev) => {
-                        // Embedded browsers (chat previews, webviews) often
-                        // ignore target=_blank and replace this page. Try a
-                        // real popup first; the copy button below is the
-                        // guaranteed fallback.
-                        ev.preventDefault();
-                        const w = window.open(
-                          e.editorUrl ?? e.claimUrl,
-                          "_blank",
-                          "noopener,noreferrer",
-                        );
-                        if (!w) {
-                          // Popup refused (embedded browser): do NOT replace
-                          // this page — copy the link instead.
-                          void navigator.clipboard
-                            ?.writeText(e.editorUrl ?? e.claimUrl)
-                            .catch(() => undefined);
-                          setCopiedBook(e.bookId || "1");
-                        }
-                      }}
-                    >
-                      {t(lang, "openBook")}
-                    </a>
-                    <button
-                      className="btn secondary"
-                      onClick={() => {
-                        void navigator.clipboard
-                          ?.writeText(e.editorUrl ?? e.claimUrl)
-                          .catch(() => undefined);
-                        setCopiedBook(e.bookId || "1");
-                      }}
-                    >
-                      {copiedBook === (e.bookId || "1")
-                        ? lang === "en"
-                          ? "Link copied"
-                          : "Lien copié"
-                        : lang === "en"
-                          ? "Copy the book link"
-                          : "Copier le lien du livre"}
-                    </button>
-                  </div>
-                  <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
-                    {lang === "en"
-                      ? "If this preview replaces the agent page (embedded browser), copy the link and open it in Chrome or Safari — nothing is lost, the book is saved."
-                      : "Si cet aperçu remplace la page de l’agent (navigateur intégré), copiez le lien et ouvrez-le dans Chrome ou Safari — rien n’est perdu, le livre est enregistré."}
-                  </p>
-                </div>
+                <BookCard
+                  key={j}
+                  e={e}
+                  lang={lang}
+                  copiedBook={copiedBook}
+                  onCopied={setCopiedBook}
+                />
               );
             })}
           </div>
@@ -929,172 +663,25 @@ export default function Home() {
         <div ref={bottomRef} />
       </main>
 
-      <section
-        className="files-panel"
-        aria-label="Ajouter GPX et photos"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          const files = Array.from(e.dataTransfer.files);
-          const gpx = files.filter((f) => f.name.toLowerCase().endsWith(".gpx"));
-          const imgs = files.filter((f) => f.type.startsWith("image/"));
-          if (gpx.length) {
-            const dt = new DataTransfer();
-            gpx.forEach((f) => dt.items.add(f));
-            void onGpxFiles(dt.files);
-          }
-          if (imgs.length) {
-            const dt = new DataTransfer();
-            imgs.forEach((f) => dt.items.add(f));
-            void onPhotoFiles(dt.files);
-          }
-        }}
-      >
-        <p
-          style={{ margin: "0 0 6px", fontSize: 12, color: "var(--brand-muted)" }}
-          title={
-            device === "iphone"
-              ? t(lang, "hintIPhone")
-              : device === "android"
-                ? t(lang, "hintAndroid")
-                : t(lang, "hintDesktop")
-          }
-        >
-          {device === "iphone"
-            ? lang === "en"
-              ? "iPhone — Photos opens directly."
-              : "iPhone — la photothèque s’ouvre directement."
-            : device === "android"
-              ? lang === "en"
-                ? "Android — your gallery opens directly."
-                : "Android — la galerie s’ouvre directement."
-              : lang === "en"
-                ? "Drop files here, or use the buttons."
-                : "Glissez des fichiers ici, ou utilisez les boutons."}
-        </p>
-        <div className="row" style={{ marginTop: 0 }}>
-          <label className="btn secondary" style={{ cursor: "pointer" }}>
-            {t(lang, "addGpx")}
-            <input
-              type="file"
-              accept=".gpx"
-              multiple
-              hidden
-              onChange={(e) => {
-                void onGpxFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </label>
-          <label className="btn secondary" style={{ cursor: "pointer" }}>
-            {t(lang, "addPhotos")}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(e) => {
-                void onPhotoFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-          </label>
-          {manual.length > 0 && (
-            <button className="btn cta" disabled={busy} onClick={createManualBook}>
-              {t(lang, "createWithMine")} ({manual.length})
-            </button>
-          )}
-        </div>
-        {manual.map((a) => (
-          <p key={a.id} style={{ margin: "8px 0 0", fontSize: 13 }}>
-            <strong>{a.title}</strong> · {a.date} · {fmtDistance(a.distanceKm, lang)} · {fmtElevation(a.elevationGainM, lang)} · GPS OK
-            <button
-              className="btn secondary"
-              style={{ marginLeft: 8, minHeight: 32, padding: "4px 10px" }}
-              onClick={() => setManual((m) => m.filter((x) => x.id !== a.id))}
-            >
-              {t(lang, "remove")}
-            </button>
-          </p>
-        ))}
-        {photos.length > 0 && (
-          <>
-            <div className="photo-strip" aria-label="Photos ajoutées">
-              {photos.map((p) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={p.id}
-                  src={p.thumb}
-                  alt={p.name}
-                  title={`${p.name} — ${p.kept === true ? "gardée" : p.kept === false ? "écartée" : "ajoutée"}${p.reason ? ` : ${p.reason}` : ""}`}
-                />
-              ))}
-              <span style={{ fontSize: 13, alignSelf: "center" }}>
-                {photos.length} photo(s)
-                {photos.some((p) => p.kept) ? ` · ${photos.filter((p) => p.kept).length} gardée(s)` : ""}
-              </span>
-              <button
-                className="btn secondary"
-                style={{ minHeight: 36, padding: "6px 10px" }}
-                onClick={() => setPhotosOpen((v) => !v)}
-                aria-expanded={photosOpen}
-              >
-                {photosOpen ? "Masquer le détail" : "Détail / ranger"}
-              </button>
-            </div>
-            {photosOpen && (
-              <div className="photo-grid">
-                {photos.map((p) => (
-                  <figure key={p.id} className="photo-cell">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.thumb} alt={p.name} />
-                    <figcaption>
-                      {p.exifDate ?? "date inconnue"}
-                      {p.kept === true ? " · gardée" : p.kept === false ? " · écartée" : ""}
-                      {p.reason ? ` — ${p.reason}` : ""}
-                      {p.status ? ` · ${p.status}` : ""}
-                      <select
-                        value={p.activityId}
-                        onChange={(e) =>
-                          setPhotos((prev) =>
-                            prev.map((x) =>
-                              x.id === p.id ? { ...x, activityId: e.target.value } : x,
-                            ),
-                          )
-                        }
-                        aria-label="Sortie de cette photo"
-                      >
-                        <option value="">Photo libre — l’agent la place tout seul</option>
-                        {knownDates().map((k) => (
-                          <option key={k.id} value={k.id}>
-                            {k.title} ({k.date})
-                          </option>
-                        ))}
-                      </select>
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
-            )}
-            <div className="row">
-              <button className="btn cta" disabled={photoBusy || busy} onClick={() => void preparePhotos()}>
-                {photoBusy
-                  ? lang === "en"
-                    ? "Preparing…"
-                    : "Préparation en cours…"
-                  : lang === "en"
-                    ? "Use these photos in the book"
-                    : "Utiliser ces photos dans le livre"}
-              </button>
-            </div>
-            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
-              {lang === "en"
-                ? "One tap: the AI keeps the best, crops them safely, sends them, and places free photos itself (attached, full page, or its own page)."
-                : "Un seul toucher : l’IA garde les meilleures, les recadre sans couper le sujet, les envoie, et place elle-même les photos libres (rattachées, pleine page, ou page à part)."}
-            </p>
-          </>
-        )}
-      </section>
+      <FilesPanel
+        lang={lang}
+        device={device}
+        busy={busy}
+        photoBusy={photoBusy}
+        manual={manual}
+        photos={photos}
+        photosOpen={photosOpen}
+        known={knownDates()}
+        onGpxFiles={(f) => void onGpxFiles(f)}
+        onPhotoFiles={(f) => void onPhotoFiles(f)}
+        onRemoveManual={(id) => setManual((m) => m.filter((x) => x.id !== id))}
+        onCreateManual={createManualBook}
+        onTogglePhotosOpen={() => setPhotosOpen((v) => !v)}
+        onAssignPhoto={(id, activityId) =>
+          setPhotos((prev) => prev.map((x) => (x.id === id ? { ...x, activityId } : x)))
+        }
+        onPreparePhotos={() => void preparePhotos()}
+      />
 
       <form
         className="composer"

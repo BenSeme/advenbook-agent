@@ -9,7 +9,7 @@ export const maxDuration = 60;
 type Incoming = { role?: unknown; content?: unknown };
 
 export async function POST(req: Request) {
-  if (overDailyBudget()) {
+  if (await overDailyBudget()) {
     return NextResponse.json(
       {
         error:
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  if (rateLimited(`chat:${clientIp(req)}`, 24, 10 * 60 * 1000)) {
+  if (await rateLimited(`chat:${clientIp(req)}`, 24, 10 * 60 * 1000)) {
     return NextResponse.json(
       {
         error:

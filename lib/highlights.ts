@@ -28,6 +28,24 @@ export function activityBadges(a: HighlightActivity): string[] {
   return badges;
 }
 
+const WARMUP_RE =
+  /échauffement|echauffement|warm.?up|cooldown|cool down|retour au calme|récup|recup|recovery|déblocage|deblocage/i;
+
+/** Warm-up / cool-down next to a bigger same-day outing. */
+export function isLikelyWarmup(
+  a: HighlightActivity & { strava_activity_id?: string },
+  activities: HighlightActivity[],
+): boolean {
+  const sameDay = activities.filter((x) => x.date === a.date);
+  if (sameDay.length < 2) return false;
+  const longest = Math.max(...sameDay.map((x) => x.distance_km ?? 0));
+  return (
+    (WARMUP_RE.test(a.title) ||
+      ((a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) < longest * 0.35)) &&
+    (a.distance_km ?? 0) < longest
+  );
+}
+
 /** Worth putting forward: at least two signals, or photos, or a race. */
 export function isHighlight(a: HighlightActivity): boolean {
   return (
