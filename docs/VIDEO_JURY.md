@@ -60,7 +60,10 @@ d'entretien à la voix (un souvenir), montrez le récit généré.
 > the runner — and crops for print without cutting anything that
 > matters. The agent places the best ones full page, by itself."
 
-Montrez les photos quitter l'encadré, le message de placement.
+Montrez les photos quitter l'encadré, le message de placement. Puis le
+moment couverture : trois couvertures composées avec vos photos et
+votre titre s'affichent — touchez la plus belle, en silence, laissez
+l'image parler deux secondes. C'est LE plan de la vidéo.
 
 ### 1:45 – 2:15 — Le livre
 *Écran : création, carte livre, clic « Ouvrir mon livre » (nouvel onglet),
