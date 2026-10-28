@@ -96,6 +96,7 @@ try {
           ui: [{
             kind: "book",
             bookId: "B1",
+            title: "Été dans les Pyrénées",
             claimUrl: "https://www.advenbook.com/fr/my-book/preview?bookId=B1&claim=X",
             editorUrl: "https://www.advenbook.com/fr/my-book/creer?bookId=B1",
             orderUrl: "https://www.advenbook.com/fr/my-book/order?bookId=B1",
@@ -171,6 +172,16 @@ try {
   assert.ok(order, "Order my book button present next to Open my book");
   assert.equal(order.href, "https://www.advenbook.com/fr/my-book/order?bookId=B1");
   assert.equal(order.target, "_blank", "order opens in a new tab, agent page stays");
+
+  // Celebration card: real session stats, skippable to the title.
+  await page.waitForFunction(() => document.querySelector(".celebration"), { timeout: 15000 });
+  await page.click(".cele-skip");
+  await page.waitForFunction(
+    () => document.querySelector(".cele-title")?.textContent.includes("Été dans les Pyrénées"),
+    { timeout: 15000 },
+  );
+  const celeSub = await page.evaluate(() => document.querySelector(".cele-sub")?.textContent ?? "");
+  assert.match(celeSub, /72 sorties/, `celebration uses ticked outings count, got: ${celeSub}`);
 
   // Photos: add 4, use them (AI keeps 3, drops 1) — the whole batch
   // must leave the dropzone, dropped one included.

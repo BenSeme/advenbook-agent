@@ -26,6 +26,7 @@ import type {
 import { fileToDataUrl, fullDataUrl } from "@/lib/files";
 import { encodeWav } from "@/lib/voice";
 import { ActivitiesCard, BookCard, ConnectCard, CoverCard, MyBooksCard } from "./components/cards";
+import { CelebrationCard, type CelebData } from "./components/CelebrationCard";
 import { FilesPanel } from "./components/FilesPanel";
 
 const GREETING: Msg = {
@@ -103,6 +104,9 @@ export default function Home() {
   const coverUrlRef = useRef("");
   const [continueBookId, setContinueBookId] = useState("");
   const continueBookIdRef = useRef("");
+  const [celebration, setCelebration] = useState<CelebData | null>(null);
+  const sessionStatsRef = useRef({ outings: 0, km: 0, elev: 0 });
+  const preparedCelebPhotosRef = useRef<{ thumb: string; reason?: string }[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [photosOpen, setPhotosOpen] = useState(false);
@@ -402,6 +406,10 @@ export default function Home() {
         .filter((p) => uploaded.has(p.id))
         .map((p) => ({ id: p.id, thumb: p.thumb, url: uploaded.get(p.id) as string }))
         .slice(0, 3);
+      preparedCelebPhotosRef.current = photos
+        .filter((p) => uploaded.has(p.id))
+        .map((p) => ({ thumb: p.thumb, reason: reasons.get(p.id) }))
+        .slice(0, 3);
       if (coverPhotos.length >= 2) {
         const firstAsk =
           messages.find((m) => m.role === "user")?.content ?? "Aventures";
@@ -619,6 +627,23 @@ export default function Home() {
             confirmedIds.length > 0 ? prev : suggestedSelection(e.activities),
           );
         }
+        if (e.kind === "book") {
+          // Surprise card: real session data only (chosen outings' stats,
+          // the photos Muse Spark kept, the real book title).
+          const stats = sessionStatsRef.current;
+          const firstAsk =
+            next.find((m) => m.role === "user")?.content ?? "AdvenBook";
+          setCelebration({
+            bookId: e.bookId || e.title || "book",
+            title: e.title ?? (firstAsk.length > 52 ? `${firstAsk.slice(0, 52).trim()}…` : firstAsk),
+            outings: e.totalActivities ?? stats.outings,
+            km: stats.km,
+            elev: stats.elev,
+            photos: preparedCelebPhotosRef.current,
+            editorUrl: e.editorUrl ?? e.claimUrl,
+            orderUrl: e.orderUrl,
+          });
+        }
       }
       if (data.toolEvents?.length) {
         setStatus(data.toolEvents[data.toolEvents.length - 1].label);
@@ -643,6 +668,27 @@ export default function Home() {
     .flatMap((m) => m.ui ?? [])
     .find((e): e is Extract<UiEvent, { kind: "activities" }> => e.kind === "activities");
   latestActivitiesRef.current = Boolean(latestActivities);
+
+  // Real session stats for the celebration card: the outings the user
+  // actually ticked (or the GPX outings they added) — never invented.
+  useEffect(() => {
+    if (latestActivities) {
+      const chosen = latestActivities.activities.filter(
+        (a) => selected[a.strava_activity_id],
+      );
+      sessionStatsRef.current = {
+        outings: chosen.length,
+        km: chosen.reduce((n, a) => n + (a.distance_km ?? 0), 0),
+        elev: chosen.reduce((n, a) => n + (a.elevation_gain_m ?? 0), 0),
+      };
+    } else if (manual.length) {
+      sessionStatsRef.current = {
+        outings: manual.length,
+        km: manual.reduce((n, a) => n + (a.distanceKm ?? 0), 0),
+        elev: manual.reduce((n, a) => n + (a.elevationGainM ?? 0), 0),
+      };
+    }
+  }, [selected, messages, manual]);
 
   function confirmSelection(skipInterview: boolean) {
     if (!latestActivities) return;
@@ -819,14 +865,23 @@ export default function Home() {
                   />
                 );
               }
+              const bookEvent = e as Extract<UiEvent, { kind: "book" }>;
               return (
-                <BookCard
-                  key={j}
-                  e={e as Extract<UiEvent, { kind: "book" }>}
-                  lang={lang}
-                  copiedBook={copiedBook}
-                  onCopied={setCopiedBook}
-                />
+                <div key={j} style={{ display: "contents" }}>
+                  {celebration && celebration.bookId === (bookEvent.bookId || celebration.bookId) && (
+                    <CelebrationCard
+                      data={celebration}
+                      lang={lang}
+                      onClose={() => setCelebration(null)}
+                    />
+                  )}
+                  <BookCard
+                    e={bookEvent}
+                    lang={lang}
+                    copiedBook={copiedBook}
+                    onCopied={setCopiedBook}
+                  />
+                </div>
               );
             })}
           </div>

@@ -43,6 +43,9 @@ export type BookUiEvent = {
   orderUrl?: string;
   estimatedPages?: number;
   price?: unknown;
+  title?: string;
+  totalActivities?: number;
+  added?: number;
 };
 
 /** add_to_adventure_book result -> the same book card as a creation. */
@@ -62,5 +65,9 @@ export function bookEventFromAddResult(result: unknown): BookUiEvent | null {
       typeof r.priceEur === "string" && r.priceEur
         ? { eur: r.priceEur }
         : r.price,
+    title: typeof r.title === "string" && r.title ? r.title : undefined,
+    totalActivities:
+      typeof r.totalActivities === "number" ? r.totalActivities : undefined,
+    added: typeof r.added === "number" ? r.added : undefined,
   };
 }

@@ -63,6 +63,9 @@ export type UiEvent =
       orderUrl?: string;
       estimatedPages?: number;
       price?: unknown;
+      title?: string;
+      totalActivities?: number;
+      added?: number;
     };
 
 export type Activity = {
@@ -149,6 +152,7 @@ function extractUi(name: string, result: unknown, ui: UiEvent[]) {
             : undefined,
       estimatedPages: typeof r.estimatedPages === "number" ? r.estimatedPages : undefined,
       price: r.price,
+      title: typeof r.title === "string" && r.title ? r.title : undefined,
     });
   }
 }

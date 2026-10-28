@@ -71,6 +71,8 @@ const dict = {
   bookReady: { fr: "Votre brouillon de livre est prêt", en: "Your book draft is ready", es: "Tu borrador de libro está listo", de: "Dein Buchentwurf ist fertig", it: "La bozza del libro è pronta", eu: "Zure liburu zirriborroa prest dago" },
   openBook: { fr: "Ouvrir mon livre", en: "Open my book", es: "Abrir mi libro", de: "Mein Buch öffnen", it: "Apri il mio libro", eu: "Ireki nire liburua" },
   orderBook: { fr: "Commander mon livre", en: "Order my book", es: "Pedir mi libro", de: "Mein Buch bestellen", it: "Ordina il mio libro", eu: "Eskatu nire liburua" },
+  celebSkip: { fr: "Passer", en: "Skip", es: "Saltar", de: "Überspringen", it: "Salta", eu: "Saltatu" },
+  celebClose: { fr: "Fermer", en: "Close", es: "Cerrar", de: "Schließen", it: "Chiudi", eu: "Itxi" },
   coverTitle: {
     fr: "Votre couverture — touchez celle que vous aimez",
     en: "Your cover — tap the one you love",

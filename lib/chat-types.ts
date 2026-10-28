@@ -33,6 +33,9 @@ export type UiEvent =
       orderUrl?: string;
       estimatedPages?: number;
       price?: unknown;
+      title?: string;
+      totalActivities?: number;
+      added?: number;
     };
 
 export type Msg = {

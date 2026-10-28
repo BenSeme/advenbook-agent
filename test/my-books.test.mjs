@@ -43,5 +43,8 @@ test("add result becomes the same book card (editor + order + euro price)", () =
   assert.equal(ev.orderUrl, "https://www.advenbook.com/fr/my-book/order?bookId=BK1");
   assert.equal(ev.estimatedPages, 92);
   assert.deepEqual(ev.price, { eur: "85.00 EUR" });
+  assert.equal(ev.title, "Été 2025");
+  assert.equal(ev.totalActivities, 37);
+  assert.equal(ev.added, 5);
   assert.equal(bookEventFromAddResult({ error: "book_already_ordered" }), null);
 });
