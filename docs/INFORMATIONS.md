@@ -49,11 +49,15 @@ Outils : `connect_strava`, `list_strava_activities`,
 `create_adventure_book`, `get_book_price`.
 
 Champs création qui comptent (`create_adventure_book`, schéma relu en entier) :
-- `activities` : **minItems 1, maxItems 50 par appel** — c'est une reliure
-  par **volume**, pas une limite produit chez nous. Au-delà de 50 sorties
-  confirmées, l'agent découpe en volumes chronologiques de 50 max
-  (« <titre> — Volume 1 », …) et crée chaque volume. Ne jamais supprimer
-  des sorties confirmées pour « rentrer » dans un chiffre.
+- `activities` : **minItems 1, maxItems 150 par appel** (revérifié en
+  direct le 2026-10-27 ; AdvenBook l'a relevé de 50 à 150) — c'est une
+  reliure par **volume**, pas une limite produit chez nous. La sélection
+  par défaut garde **toutes** les sorties confirmées (hors échauffements) :
+  il n'existe aucune règle « garder les 50 plus fortes ». Au-delà du
+  maximum lu dans le schéma de l'outil (`activities.maxItems`, lu en
+  direct — ne jamais coder le nombre en dur), l'agent découpe en volumes
+  chronologiques (« <titre> — Volume 1 », …) et crée chaque volume. Ne
+  jamais supprimer des sorties confirmées pour « rentrer » dans un chiffre.
 - `gps_polyline` : « sans lui, la page n'a pas de carte ». La doc de l'outil
   conseille `include_polyline: true` sur la liste, mais
   `list_strava_activities` n'a **pas** ce paramètre (incohérence côté
@@ -191,8 +195,7 @@ Dans ce dépôt : rien de bloquant. Hors de ce dépôt :
 - Déploiement : le fondateur crée le dépôt GitHub privé + projet Vercel
   et y met les variables d'environnement (§2 de [.env.example](../.env.example)).
 - Côté AdvenBook (leur code privé) : paramètre `include_polyline` effectif
-  ou traces dans la liste Strava, plafond 50/volume à relever s'ils le
-  souhaitent, mise en page photos pleine page par défaut, bug « carte
+  ou traces dans la liste Strava, mise en page photos pleine page par défaut, bug « carte
   détaillée plein écran » quand une activité n'a que carte ou que photo,
   paramètres `cover_color`/`typography`/`photo_shape` dans le MCP,
   redirection éventuelle `creer`→`preview` pour sessions non reconnues.
