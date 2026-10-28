@@ -432,6 +432,10 @@ export default function Home() {
       }
       if (free.length) lines.push(`- Photos libres : ${free.join(", ")}`);
       if (lines.length === 0) throw new Error("Aucune photo envoyée");
+      // Prepared photos leave the dropzone: they belong to the book now.
+      // Only photos whose upload failed stay, with their status visible.
+      setPhotos((prev) => prev.filter((p) => !uploaded.has(p.id)));
+      for (const id of uploaded.keys()) photoFiles.current.delete(id);
       setPhotosOpen(false);
       await send(
         `Voici les photos préparées pour le livre (garde/photo_urls, recopie les liens sans les modifier). Rattachées :\n${lines.join("\n")}\nPlace toi-même les photos libres (rattachées à la bonne sortie, en pleine page, ou en page photo à part) et dis-moi en une ligne ce que tu as fait. Au moins 25% des photos en pleine page, sur au moins 25% des sorties qui ont des photos.`,
@@ -946,12 +950,27 @@ export default function Home() {
           }
         }}
       >
-        <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--brand-muted)" }}>
+        <p
+          style={{ margin: "0 0 6px", fontSize: 12, color: "var(--brand-muted)" }}
+          title={
+            device === "iphone"
+              ? t(lang, "hintIPhone")
+              : device === "android"
+                ? t(lang, "hintAndroid")
+                : t(lang, "hintDesktop")
+          }
+        >
           {device === "iphone"
-            ? t(lang, "hintIPhone")
+            ? lang === "en"
+              ? "iPhone — Photos opens directly."
+              : "iPhone — la photothèque s’ouvre directement."
             : device === "android"
-              ? t(lang, "hintAndroid")
-              : t(lang, "hintDesktop")}
+              ? lang === "en"
+                ? "Android — your gallery opens directly."
+                : "Android — la galerie s’ouvre directement."
+              : lang === "en"
+                ? "Drop files here, or use the buttons."
+                : "Glissez des fichiers ici, ou utilisez les boutons."}
         </p>
         <div className="row" style={{ marginTop: 0 }}>
           <label className="btn secondary" style={{ cursor: "pointer" }}>
