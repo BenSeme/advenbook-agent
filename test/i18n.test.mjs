@@ -12,6 +12,8 @@ test("connect card is fully translated in every language", () => {
     assert.ok(t(l, "connectStep2").length > 20, l);
     assert.ok(t(l, "connectStep3").includes("{connected}"), l);
     assert.ok(t(l, "connectNote").length > 20, l);
+    assert.ok(t(l, "copyConnectLink").length > 3, l);
+    assert.ok(t(l, "connectCopiedNote").length > 20, l);
   }
   assert.equal(t("fr", "connectedBtn"), "2. C’est connecté — continuer");
   assert.match(t("fr", "connectStep1"), /Cliquez/);

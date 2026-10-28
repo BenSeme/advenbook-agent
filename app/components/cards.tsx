@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { activityBadges, isHighlight, isLikelyWarmup } from "@/lib/highlights";
 import { fmtDistance, fmtElevation, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { Activity, MyBook, UiEvent } from "@/lib/chat-types";
@@ -112,6 +112,21 @@ export function ConnectCard({
   busy: boolean;
   onConnected: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const copyLink = () => {
+    void navigator.clipboard?.writeText(e.connectUrl).catch(() => undefined);
+    setCopied(true);
+  };
+  // Force a NEW tab/page for the Strava authorisation: the agent page
+  // must stay open underneath. Some embedded browsers ignore
+  // target="_blank" and replace the current page — window.open with
+  // noopener either opens the new page, or returns null, and then we
+  // fall back to copying the link with clear instructions.
+  const openConnect = (ev: MouseEvent) => {
+    ev.preventDefault();
+    const w = window.open(e.connectUrl, "_blank", "noopener,noreferrer");
+    if (!w) copyLink();
+  };
   return (
     <div className="card">
       <h2>{t(lang, "connectTitle")}</h2>
@@ -121,13 +136,27 @@ export function ConnectCard({
         <li>{t(lang, "connectStep3").replace("{connected}", t(lang, "connectedBtn"))}</li>
       </ol>
       <div className="row" style={{ marginTop: 0 }}>
-        <a className="btn" href={e.connectUrl} target="_blank" rel="noreferrer">
+        <a
+          className="btn"
+          href={e.connectUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={openConnect}
+        >
           {t(lang, "connectBtn")}
         </a>
         <button className="btn secondary" disabled={busy} onClick={onConnected}>
           {t(lang, "connectedBtn")}
         </button>
+        <button className="btn secondary" onClick={copyLink}>
+          {copied ? t(lang, "linkCopied") : t(lang, "copyConnectLink")}
+        </button>
       </div>
+      {copied && (
+        <p style={{ margin: "10px 0 0", fontSize: 13, color: "var(--brand-ink)" }}>
+          {t(lang, "connectCopiedNote")}
+        </p>
+      )}
       <p style={{ margin: "10px 0 0", fontSize: 12, color: "#5a6b52" }}>
         {t(lang, "connectNote")}
       </p>

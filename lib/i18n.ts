@@ -154,6 +154,16 @@ const dict = {
     it: "Tocca «{connected}». Allora leggerò le tue uscite.",
     eu: "Sakatu «{connected}». Orduan zure irteerak irakurriko ditut.",
   },
+  copyConnectLink: { fr: "Copier le lien de connexion", en: "Copy the connect link", es: "Copiar el enlace de conexión", de: "Verbindungslink kopieren", it: "Copia il link di connessione", eu: "Kopiatu konexio esteka" },
+  linkCopied: { fr: "Lien copié", en: "Link copied", es: "Enlace copiado", de: "Link kopiert", it: "Link copiato", eu: "Esteka kopiatuta" },
+  connectCopiedNote: {
+    fr: "La nouvelle page a été bloquée par votre navigateur : le lien est copié. Ouvrez-le dans Chrome ou Safari, autorisez Strava, puis revenez ici et cliquez « C’est connecté ».",
+    en: "Your browser blocked the new page: the link is copied. Open it in Chrome or Safari, authorise Strava, then come back here and click “I’ve connected”.",
+    es: "Tu navegador bloqueó la nueva página: el enlace está copiado. Ábrelo en Chrome o Safari, autoriza Strava, vuelve aquí y toca «Ya está conectado».",
+    de: "Dein Browser hat die neue Seite blockiert: Der Link ist kopiert. Öffne ihn in Chrome oder Safari, autorisiere Strava, komm dann hierher zurück und klicke „Verbunden“.",
+    it: "Il tuo browser ha bloccato la nuova pagina: il link è copiato. Aprila in Chrome o Safari, autorizza Strava, poi torna qui e tocca «Collegato».",
+    eu: "Zure nabigatzaileak orri berria blokeatu du: esteka kopiatuta dago. Ireki Chrome edo Safarin, baimendu Strava, itzuli hona eta sakatu «Konektatuta».",
+  },
   connectNote: {
     fr: "Lien valable 24 heures. Si la lecture échoue, l’autorisation n’est peut-être pas terminée : reconnectez-vous, puis cliquez à nouveau sur continuer.",
     en: "Link valid 24 hours. If reading fails, the authorisation may not have finished — reconnect, then click continue again.",
