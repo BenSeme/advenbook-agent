@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { transcribeAudio } from "@/lib/models";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { logError } from "@/lib/monitor";
+import { isConversationId, withConversationContext } from "@/lib/tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,8 +29,12 @@ export async function POST(req: Request) {
       { status: 413 },
     );
   }
+  const conversationId = form.get("conversationId");
   try {
-    const text = await transcribeAudio(await audio.arrayBuffer());
+    const wav = await audio.arrayBuffer();
+    const text = isConversationId(conversationId)
+      ? await withConversationContext(conversationId, () => transcribeAudio(wav))
+      : await transcribeAudio(wav);
     return NextResponse.json({ text });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Transcription failed.";

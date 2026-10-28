@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { metricsSnapshot } from "@/lib/metrics";
+import { dailySummary } from "@/lib/tracking";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const snap = await metricsSnapshot();
+  // Per-day cost/funnel detail (docs/CONSIGNE_SUIVI.md §4): ?date=YYYY-MM-DD,
+  // today by default. Conversation ids are anonymous `c_…` ids only.
+  const daily = await dailySummary(
+    new URL(req.url).searchParams.get("date") ?? undefined,
+  );
   const funnel = {
     booksPer100Turns:
       snap.total.chat_turn > 0
@@ -30,5 +36,5 @@ export async function GET(req: Request) {
         ? Math.round((snap.total.order_click / snap.total.book_created) * 100) / 100
         : null,
   };
-  return NextResponse.json({ ...snap, funnel });
+  return NextResponse.json({ ...snap, funnel, daily });
 }

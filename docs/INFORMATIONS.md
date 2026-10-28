@@ -37,6 +37,7 @@ connexion Strava en `localStorage` (clé `ab-connection-id`).
 | [app/api/photos/](../app/api/photos/) | `select` (vision) et `process` (SAM + sharp + Vercel Blob) |
 | [app/api/transcribe/route.ts](../app/api/transcribe/route.ts) | Dictée vocale → Muse Voice Transcribe |
 | [app/api/strava/activities/route.ts](../app/api/strava/activities/route.ts) | Lecture Strava déterministe après connexion (sans LLM) |
+| [lib/tracking.ts](../lib/tracking.ts) | Suivi réel par conversation (consigne 28/10) : id anonyme `c_…`, coûts par appel modèle, étapes, résumé journalier dans `GET /api/metrics` |
 
 Tests : `npm test` (node:test, fichiers dans [test/](../test/)). Build :
 `npm run build`. Serveur : `npm run start -- -p 3100` en local.
@@ -213,6 +214,26 @@ sont appliquées dans le code, testées, et doivent le rester :
     l'environnement Vercel, redéployer. Sans KV, les compteurs sont en
     mémoire par instance (suffisant en local/démo, pas de garantie
     globale en production multi-instances).
+13. **Suivi réel (28/10, pour le bilan du 5/11)** : chaque conversation a
+    un id anonyme `c_` + 16 caractères (session navigateur, jamais nom /
+    e-mail / id Strava). [lib/tracking.ts](../lib/tracking.ts) trace, dans
+    le store partagé KV (TTL 30 jours, mémoire sinon), uniquement des
+    compteurs : date, langue, source UTM assainie, tours, et pour CHAQUE
+    appel modèle (Spark chat/vision, SAM, Voice) tokens/images/secondes
+    audio, coût $ (prix dans [.env.example](../.env.example)), durée, code
+    d'erreur court — jamais contenu, photo, URL ou message d'erreur brut
+    (testé : [test/tracking.test.mjs](../test/tracking.test.mjs), dont
+    preuve multi-instances KV). Étapes : `strava_connected`,
+    `existing_book_found`, `book_created`, `book_continued`, `open_click`,
+    `order_click`, `visitor_cap_hit`. L'id part en `agent_session_id`
+    dans `create_adventure_book` ET `add_to_adventure_book` (champ relu
+    en direct dans `tools/list` le 28/10 ; client MCP = clientInfo
+    `advenbook-agent` + User-Agent `advenbook-agent/1.0`, testé contre un
+    faux serveur MCP). `GET /api/metrics?date=YYYY-MM-DD` ajoute `daily` :
+    conversations par source, entonnoir, coût total / par modèle / par
+    conversation / par livre créé, tokens moyens, et la liste des ids de
+    conversations ayant créé ou continué un livre (rapprochement avec les
+    commandes payées côté AdvenBook).
 
 ## 6. Photos et GPX (M2), état réel
 

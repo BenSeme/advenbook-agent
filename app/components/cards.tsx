@@ -247,11 +247,13 @@ export function BookCard({
   lang,
   copiedBook,
   onCopied,
+  conversationId,
 }: {
   e: BookEvent;
   lang: Lang;
   copiedBook: string;
   onCopied: (id: string) => void;
+  conversationId?: string;
 }) {
   const url = e.editorUrl ?? e.claimUrl;
   const copy = () => {
@@ -266,6 +268,7 @@ export function BookCard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event: target === url ? "open_click" : "order_click",
+        ...(conversationId ? { conversationId } : {}),
       }),
       keepalive: true,
     }).catch(() => undefined);

@@ -132,6 +132,45 @@ export default function Home() {
     if (saved) setConnectionId(saved);
   }, []);
 
+  // Anonymous conversation id for cost/funnel tracking (c_ + 16 chars,
+  // session-scoped, never any personal data) + first-touch UTM source.
+  const conversationRef = useRef<{
+    id: string;
+    source: { utm_source: string; utm_medium: string; utm_content: string };
+  } | null>(null);
+  function conversationInfo() {
+    if (conversationRef.current) return conversationRef.current;
+    let id = "";
+    let source = { utm_source: "", utm_medium: "", utm_content: "" };
+    try {
+      id = window.sessionStorage.getItem("ab-conversation-id") ?? "";
+      const savedSource = window.sessionStorage.getItem("ab-conversation-source");
+      if (savedSource) source = JSON.parse(savedSource) as typeof source;
+    } catch {
+      // storage unavailable: fall through to fresh values
+    }
+    if (!/^c_[A-Za-z0-9]{16}$/.test(id)) {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      id = `c_${Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("")}`;
+      const params = new URLSearchParams(window.location.search);
+      source = {
+        utm_source: params.get("utm_source") ?? "",
+        utm_medium: params.get("utm_medium") ?? "",
+        utm_content: params.get("utm_content") ?? "",
+      };
+      try {
+        window.sessionStorage.setItem("ab-conversation-id", id);
+        window.sessionStorage.setItem("ab-conversation-source", JSON.stringify(source));
+      } catch {
+        // in-memory ref below still keeps the conversation coherent
+      }
+    }
+    conversationRef.current = { id, source };
+    return conversationRef.current;
+  }
+
   function rememberConnection(id: string) {
     setConnectionId(id);
     window.localStorage.setItem("ab-connection-id", id);
@@ -150,7 +189,7 @@ export default function Home() {
       const res = await fetch("/api/strava/activities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId, lang }),
+        body: JSON.stringify({ connectionId, lang, conversationId: conversationInfo().id }),
       });
       const data = (await res.json()) as {
         activities?: Activity[];
@@ -312,7 +351,7 @@ export default function Home() {
         const res = await fetch("/api/photos/select", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ outingTitle: title, images }),
+          body: JSON.stringify({ outingTitle: title, images, conversationId: conversationInfo().id }),
         });
         const data = (await res.json()) as {
           keep?: { id: string; reason: string }[];
@@ -343,7 +382,11 @@ export default function Home() {
         const res = await fetch("/api/photos/process", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dataUrl: await fullDataUrl(file), fileName: p.name }),
+          body: JSON.stringify({
+            dataUrl: await fullDataUrl(file),
+            fileName: p.name,
+            conversationId: conversationInfo().id,
+          }),
         });
         const data = (await res.json()) as { url?: string; error?: string };
         if (data.url) uploaded.set(p.id, data.url);
@@ -479,6 +522,7 @@ export default function Home() {
       try {
         const form = new FormData();
         form.append("audio", new Blob([encodeWav(samples, rate)], { type: "audio/wav" }), "audio.wav");
+        form.append("conversationId", conversationInfo().id);
         const res = await fetch("/api/transcribe", { method: "POST", body: form });
         const data = (await res.json()) as { text?: string; error?: string };
         if (!res.ok || data.error) throw new Error(data.error ?? "Transcription failed");
@@ -557,10 +601,14 @@ export default function Home() {
     setBusy(true);
     setStatus("Thinking…");
     try {
+      const conv = conversationInfo();
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          conversationId: conv.id,
+          source: conv.source,
+          lang,
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           context: {
             ...(connectionId ? { connectionId } : {}),
@@ -880,6 +928,7 @@ export default function Home() {
                     lang={lang}
                     copiedBook={copiedBook}
                     onCopied={setCopiedBook}
+                    conversationId={conversationInfo().id}
                   />
                 </div>
               );

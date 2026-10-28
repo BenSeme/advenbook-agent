@@ -3,6 +3,7 @@ import { callMcpTool } from "@/lib/mcp";
 import { clientIp, rateLimited } from "@/lib/rate-limit";
 import { logError } from "@/lib/monitor";
 import { normalizeBooks } from "@/lib/my-books";
+import { isConversationId, recordStep } from "@/lib/tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,12 +20,13 @@ export async function POST(req: Request) {
       { status: 429 },
     );
   }
-  let body: { connectionId?: unknown; lang?: unknown };
+  let body: { connectionId?: unknown; lang?: unknown; conversationId?: unknown };
   try {
-    body = (await req.json()) as { connectionId?: unknown; lang?: unknown };
+    body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+  const conversationId = isConversationId(body.conversationId) ? body.conversationId : null;
   const lang =
     typeof body.lang === "string" && ["en", "fr", "es", "de", "it", "eu"].includes(body.lang)
       ? body.lang
@@ -64,6 +66,11 @@ export async function POST(req: Request) {
       );
     } catch (err) {
       logError("get-my-books", err);
+    }
+    if (conversationId) {
+      // A successful Strava read is the proof of connection.
+      await recordStep(conversationId, "strava_connected");
+      if (books.length > 0) await recordStep(conversationId, "existing_book_found");
     }
     return NextResponse.json({ activities, books });
   } catch (err) {

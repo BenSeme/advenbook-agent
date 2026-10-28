@@ -12,6 +12,14 @@ import { getOrCreateVisitor, signedVisitorValue, VISITOR_COOKIE } from "@/lib/vi
 import { turnstileConfigured, verifyTurnstile } from "@/lib/turnstile";
 import { logError } from "@/lib/monitor";
 import { countMetric } from "@/lib/metrics";
+import {
+  ensureConversation,
+  recordStep,
+  recordTurn,
+  resolveConversationId,
+  sanitizeSource,
+  withConversationContext,
+} from "@/lib/tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,6 +47,33 @@ export async function POST(req: Request) {
   const reply = (body: unknown, status = 200) =>
     withVisitorCookie(NextResponse.json(body, { status }), visitor);
 
+  // Parsed first: the anonymous conversation id rides along so a visitor
+  // cap hit can still be traced to this conversation (counts only).
+  let body: {
+    messages?: Incoming[];
+    context?: {
+      connectionId?: unknown;
+      confirmedIds?: unknown;
+      coverPhotoUrl?: unknown;
+      continueBookId?: unknown;
+    };
+    turnstileToken?: unknown;
+    conversationId?: unknown;
+    source?: unknown;
+    lang?: unknown;
+  };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return reply({ error: "Invalid JSON body." }, 400);
+  }
+  const conversationId = resolveConversationId(body.conversationId);
+  await ensureConversation({
+    conversationId,
+    language: body.lang,
+    source: sanitizeSource(body.source),
+  });
+
   if (await overDailyBudget()) {
     return reply(
       {
@@ -61,21 +96,6 @@ export async function POST(req: Request) {
       },
       429,
     );
-  }
-  let body: {
-    messages?: Incoming[];
-    context?: {
-      connectionId?: unknown;
-      confirmedIds?: unknown;
-      coverPhotoUrl?: unknown;
-      continueBookId?: unknown;
-    };
-    turnstileToken?: unknown;
-  };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return reply({ error: "Invalid JSON body." }, 400);
   }
   const history = (body.messages ?? [])
     .filter(
@@ -128,6 +148,7 @@ export async function POST(req: Request) {
 
   if (!trusted && (await overVisitorBudget(visitor.id, false))) {
     countMetric("visitor_cap_hit");
+    await recordStep(conversationId, "visitor_cap_hit");
     return reply(
       {
         code: "visitor_cap",
@@ -140,13 +161,22 @@ export async function POST(req: Request) {
   }
 
   try {
+    await recordTurn(conversationId);
     const result = await withVisitorContext(visitor.id, () =>
-      runAgent(history, { connectionId, confirmedIds, coverPhotoUrl, continueBookId }),
+      withConversationContext(conversationId, () =>
+        runAgent(history, {
+          connectionId,
+          confirmedIds,
+          coverPhotoUrl,
+          continueBookId,
+          conversationId,
+        }),
+      ),
     );
     countMetric("chat_turn");
     const books = result.ui.filter((e) => e.kind === "book").length;
     if (books > 0) countMetric("book_created", books);
-    return reply(result);
+    return reply({ ...result, conversationId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Something went wrong.";
     logError("chat", err);

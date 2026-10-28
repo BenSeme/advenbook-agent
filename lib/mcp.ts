@@ -7,9 +7,15 @@ import type { FunctionTool } from "./models";
 const MCP_URL =
   process.env.ADVENBOOK_MCP_URL ?? "https://www.advenbook.com/api/mcp";
 
+// Clear client identity so AdvenBook can count agent-created books:
+// MCP clientInfo name "advenbook-agent" + HTTP User-Agent below.
+export const MCP_USER_AGENT = "advenbook-agent/1.0";
+
 async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
-  const client = new Client({ name: "advenbook-agent", version: "0.1.0" });
-  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));
+  const client = new Client({ name: "advenbook-agent", version: "1.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+    requestInit: { headers: { "User-Agent": MCP_USER_AGENT } },
+  });
   await client.connect(transport);
   try {
     return await fn(client);

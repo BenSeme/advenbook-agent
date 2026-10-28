@@ -50,6 +50,7 @@ npm run dev                  # http://localhost:3000
 | `SAM_MODEL` | no | Default `sam-3.1` |
 | `BLOB_READ_WRITE_TOKEN` | for photos | Vercel Blob store token; crops are uploaded as public photo URLs and deleted again once AdvenBook has copied them into the book |
 | `ADVENBOOK_MCP_URL` | no | Default `https://www.advenbook.com/api/mcp` (public, no key) |
+| `SPARK_INPUT_PRICE_PER_MTOK_USD` etc. | no | Model prices used only to cost the anonymous per-conversation traces in `GET /api/metrics` (daily summary: cost per model/conversation/book, funnel, book conversation ids for AdvenBook order matching via `agent_session_id`) |
 
 Deploy: any Next.js host (Vercel recommended). Set the same variables in the host's environment. No database: conversation state lives in the browser, Strava connection id in local storage.
 

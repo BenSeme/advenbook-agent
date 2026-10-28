@@ -5,6 +5,7 @@ import { logError } from "@/lib/monitor";
 import { put } from "@vercel/blob";
 import { segmentSubject } from "@/lib/models";
 import { computeCrop } from "@/lib/crop";
+import { isConversationId, withConversationContext } from "@/lib/tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
   if (await rateLimited(`photos-process:${clientIp(req)}`, 40, 10 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many photo uploads — retry in a few minutes." }, { status: 429 });
   }
-  let body: { dataUrl?: unknown; fileName?: unknown };
+  let body: { dataUrl?: unknown; fileName?: unknown; conversationId?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -41,8 +42,12 @@ export async function POST(req: Request) {
 
     let box = null;
     let usedPrompt: string | null = null;
+    const segment = (prompt: string) =>
+      isConversationId(body.conversationId)
+        ? withConversationContext(body.conversationId, () => segmentSubject(dataUrl, prompt))
+        : segmentSubject(dataUrl, prompt);
     for (const prompt of PROMPTS) {
-      box = await segmentSubject(dataUrl, prompt);
+      box = await segment(prompt);
       if (box) {
         usedPrompt = prompt;
         break;

@@ -1,4 +1,5 @@
 import { addTokenUsage } from "./budget";
+import { recordContextModelCall, wavDurationSeconds } from "./tracking";
 
 // Every model call goes through this module (AGENTS.md §4).
 // Provider is switched by env vars only: MODEL_BASE_URL + CHAT_MODEL + MODEL_API_KEY.
@@ -39,6 +40,30 @@ function config() {
 
 /** Muse Voice Transcribe: WAV (mono, 16-bit PCM, 16/24 kHz) -> transcript text. */
 export async function transcribeAudio(wav: ArrayBuffer): Promise<string> {
+  const started = Date.now();
+  const model = process.env.VOICE_MODEL ?? "muse-voice-transcribe-1.0";
+  try {
+    const text = await transcribeAudioImpl(wav);
+    await recordContextModelCall({
+      kind: "voice",
+      model,
+      audioSeconds: wavDurationSeconds(wav),
+      durationMs: Date.now() - started,
+    });
+    return text;
+  } catch (err) {
+    await recordContextModelCall({
+      kind: "voice",
+      model,
+      audioSeconds: wavDurationSeconds(wav),
+      durationMs: Date.now() - started,
+      error: err instanceof Error ? err.message : true,
+    });
+    throw err;
+  }
+}
+
+async function transcribeAudioImpl(wav: ArrayBuffer): Promise<string> {
   const { apiKey, baseUrl } = config();
   const form = new FormData();
   form.append(
@@ -81,6 +106,38 @@ export async function selectPhotosWithVision(
   outingTitle: string,
   images: { id: string; dataUrl: string }[],
 ): Promise<PhotoVerdict> {
+  const started = Date.now();
+  const model = process.env.CHAT_MODEL ?? "muse-spark-1.3";
+  try {
+    const { verdict, usage } = await selectPhotosWithVisionImpl(outingTitle, images);
+    await recordContextModelCall({
+      kind: "spark_vision",
+      model,
+      inputTokens: usage?.prompt_tokens,
+      outputTokens: usage?.completion_tokens,
+      images: images.length,
+      durationMs: Date.now() - started,
+    });
+    return verdict;
+  } catch (err) {
+    await recordContextModelCall({
+      kind: "spark_vision",
+      model,
+      images: images.length,
+      durationMs: Date.now() - started,
+      error: err instanceof Error ? err.message : true,
+    });
+    throw err;
+  }
+}
+
+async function selectPhotosWithVisionImpl(
+  outingTitle: string,
+  images: { id: string; dataUrl: string }[],
+): Promise<{
+  verdict: PhotoVerdict;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}> {
   const { apiKey, baseUrl, model } = config();
   const content: unknown[] = [
     {
@@ -109,7 +166,9 @@ export async function selectPhotosWithVision(
   }
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  if (data.usage) addTokenUsage(data.usage.prompt_tokens, data.usage.completion_tokens);
   const raw = data.choices?.[0]?.message?.content ?? "";
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -117,8 +176,11 @@ export async function selectPhotosWithVision(
   const parsed = JSON.parse(raw.slice(start, end + 1)) as PhotoVerdict;
   const ids = new Set(images.map((i) => i.id));
   return {
-    keep: (parsed.keep ?? []).filter((k) => ids.has(k.id)),
-    drop: (parsed.drop ?? []).filter((id) => ids.has(id)),
+    verdict: {
+      keep: (parsed.keep ?? []).filter((k) => ids.has(k.id)),
+      drop: (parsed.drop ?? []).filter((id) => ids.has(id)),
+    },
+    usage: data.usage,
   };
 }
 
@@ -126,6 +188,33 @@ export type SamBox = { x1: number; y1: number; x2: number; y2: number; w: number
 
 /** SAM 3.1 (Responses, streamed): largest subject box for a text prompt. */
 export async function segmentSubject(
+  imageDataUrl: string,
+  prompt: string,
+): Promise<SamBox | null> {
+  const started = Date.now();
+  const model = process.env.SAM_MODEL ?? "sam-3.1";
+  try {
+    const box = await segmentSubjectImpl(imageDataUrl, prompt);
+    await recordContextModelCall({
+      kind: "sam",
+      model,
+      images: 1,
+      durationMs: Date.now() - started,
+    });
+    return box;
+  } catch (err) {
+    await recordContextModelCall({
+      kind: "sam",
+      model,
+      images: 1,
+      durationMs: Date.now() - started,
+      error: err instanceof Error ? err.message : true,
+    });
+    throw err;
+  }
+}
+
+async function segmentSubjectImpl(
   imageDataUrl: string,
   prompt: string,
 ): Promise<SamBox | null> {
@@ -186,6 +275,36 @@ export async function chatCompletion(
   messages: ChatMessage[],
   tools: FunctionTool[],
 ): Promise<ChatMessage> {
+  const started = Date.now();
+  const model = process.env.CHAT_MODEL ?? "muse-spark-1.3";
+  try {
+    const { message, usage } = await chatCompletionImpl(messages, tools);
+    await recordContextModelCall({
+      kind: "spark_chat",
+      model,
+      inputTokens: usage?.prompt_tokens,
+      outputTokens: usage?.completion_tokens,
+      durationMs: Date.now() - started,
+    });
+    return message;
+  } catch (err) {
+    await recordContextModelCall({
+      kind: "spark_chat",
+      model,
+      durationMs: Date.now() - started,
+      error: err instanceof Error ? err.message : true,
+    });
+    throw err;
+  }
+}
+
+async function chatCompletionImpl(
+  messages: ChatMessage[],
+  tools: FunctionTool[],
+): Promise<{
+  message: ChatMessage;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}> {
   const { apiKey, baseUrl, model } = config();
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -216,5 +335,5 @@ export async function chatCompletion(
   }
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error("Model API returned no message.");
-  return message;
+  return { message, usage: data.usage };
 }

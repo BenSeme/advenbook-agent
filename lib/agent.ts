@@ -13,6 +13,7 @@ import {
   normalizeBooks,
   type MyBook,
 } from "./my-books.ts";
+import { injectAgentSessionId, recordStep } from "./tracking";
 
 /** After a successful book creation AdvenBook has copied the photos, so
  *  our uploaded copies can go. On failure they are kept for a retry. */
@@ -164,6 +165,7 @@ export async function runAgent(
     confirmedIds?: string[];
     coverPhotoUrl?: string;
     continueBookId?: string;
+    conversationId?: string;
   },
 ): Promise<{
   reply: string;
@@ -185,6 +187,24 @@ export async function runAgent(
   const maxPerAdd =
     (asRecord(asRecord(asRecord(addTool?.function.parameters).properties).activities)
       .maxItems as number | undefined) ?? maxPerVolume;
+  // Funnel steps for this conversation (counts only, see lib/tracking.ts).
+  const noteToolSuccess = async (toolName: string, result: unknown) => {
+    if (!context?.conversationId) return;
+    const r = asRecord(result);
+    if (r.error) return;
+    if (toolName === "list_strava_activities" && Array.isArray(r.activities)) {
+      await recordStep(context.conversationId, "strava_connected");
+    }
+    if (toolName === "get_my_books" && normalizeBooks(result).length > 0) {
+      await recordStep(context.conversationId, "existing_book_found");
+    }
+    if (toolName === "create_adventure_book" && typeof r.claimUrl === "string") {
+      await recordStep(context.conversationId, "book_created");
+    }
+    if (toolName === "add_to_adventure_book" && bookEventFromAddResult(result)) {
+      await recordStep(context.conversationId, "book_continued");
+    }
+  };
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...(context?.connectionId
@@ -239,6 +259,9 @@ export async function runAgent(
       const isBookWrite =
         name === "create_adventure_book" || name === "add_to_adventure_book";
       if (isBookWrite) {
+        // Anonymous conversation id for AdvenBook order matching
+        // (agent_session_id, live on create + add). Server-set, always.
+        args = injectAgentSessionId(args, context?.conversationId);
         // Deterministic fixes the model keeps missing:
         if (french && name === "create_adventure_book") args.language = french;
         if (context?.coverPhotoUrl && name === "create_adventure_book") {
@@ -304,21 +327,27 @@ export async function runAgent(
         // server-side), and an add always targets that book.
         if (context?.continueBookId) {
           effectiveName = "add_to_adventure_book";
-          effectiveArgs = {
-            strava_connection_id: String(
-              args.strava_connection_id ?? context.connectionId ?? "",
-            ),
-            book_id: context.continueBookId,
-            activities: args.activities,
-          };
+          effectiveArgs = injectAgentSessionId(
+            {
+              strava_connection_id: String(
+                args.strava_connection_id ?? context.connectionId ?? "",
+              ),
+              book_id: context.continueBookId,
+              activities: args.activities,
+            },
+            context?.conversationId,
+          );
         } else if (name === "add_to_adventure_book") {
-          effectiveArgs = {
-            ...args,
-            strava_connection_id: String(
-              args.strava_connection_id ?? context?.connectionId ?? "",
-            ),
-            book_id: String(args.book_id ?? ""),
-          };
+          effectiveArgs = injectAgentSessionId(
+            {
+              ...args,
+              strava_connection_id: String(
+                args.strava_connection_id ?? context?.connectionId ?? "",
+              ),
+              book_id: String(args.book_id ?? ""),
+            },
+            context?.conversationId,
+          );
         }
       }
       let result: unknown;
@@ -348,6 +377,7 @@ export async function runAgent(
                   };
             const volResult = await callMcpTool(effectiveName, volArgs);
             extractUi(effectiveName, volResult, ui);
+            await noteToolSuccess(effectiveName, volResult);
             const vr = asRecord(volResult);
             if (
               typeof vr.claimUrl === "string" ||
@@ -361,6 +391,7 @@ export async function runAgent(
         } else {
           result = await callMcpTool(effectiveName, effectiveArgs);
           extractUi(effectiveName, result, ui);
+          await noteToolSuccess(effectiveName, result);
           if (isBookWrite) {
             const r = asRecord(result);
             // Only on real success (a claim/editor link came back):
