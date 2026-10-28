@@ -180,6 +180,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [copiedBook, setCopiedBook] = useState("");
   const [confirmedIds, setConfirmedIds] = useState<string[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -827,14 +828,58 @@ export default function Home() {
                       : ""}
                     {t(lang, "draftNote")}
                   </p>
-                  <a
-                    className="btn cta"
-                    href={e.editorUrl ?? e.claimUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t(lang, "openBook")}
-                  </a>
+                  <div className="row" style={{ marginTop: 0 }}>
+                    <a
+                      className="btn cta"
+                      href={e.editorUrl ?? e.claimUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(ev) => {
+                        // Embedded browsers (chat previews, webviews) often
+                        // ignore target=_blank and replace this page. Try a
+                        // real popup first; the copy button below is the
+                        // guaranteed fallback.
+                        ev.preventDefault();
+                        const w = window.open(
+                          e.editorUrl ?? e.claimUrl,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                        if (!w) {
+                          // Popup refused (embedded browser): do NOT replace
+                          // this page — copy the link instead.
+                          void navigator.clipboard
+                            ?.writeText(e.editorUrl ?? e.claimUrl)
+                            .catch(() => undefined);
+                          setCopiedBook(e.bookId || "1");
+                        }
+                      }}
+                    >
+                      {t(lang, "openBook")}
+                    </a>
+                    <button
+                      className="btn secondary"
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(e.editorUrl ?? e.claimUrl)
+                          .catch(() => undefined);
+                        setCopiedBook(e.bookId || "1");
+                      }}
+                    >
+                      {copiedBook === (e.bookId || "1")
+                        ? lang === "en"
+                          ? "Link copied"
+                          : "Lien copié"
+                        : lang === "en"
+                          ? "Copy the book link"
+                          : "Copier le lien du livre"}
+                    </button>
+                  </div>
+                  <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
+                    {lang === "en"
+                      ? "If this preview replaces the agent page (embedded browser), copy the link and open it in Chrome or Safari — nothing is lost, the book is saved."
+                      : "Si cet aperçu remplace la page de l’agent (navigateur intégré), copiez le lien et ouvrez-le dans Chrome ou Safari — rien n’est perdu, le livre est enregistré."}
+                  </p>
                 </div>
               );
             })}
