@@ -4,7 +4,7 @@ Tell the agent what book you want — “My summer in the Pyrenees”, spoken or
 It connects Strava (or takes your GPX files and photos), picks the outings with you, asks a few short questions, and creates a finished AdvenBook draft you open, edit, and order.
 No sorting hundreds of activities, no blank-page writing: the agent does that work.
 
-Demo video: _(placeholder — link added after recording)_
+Demo video: https://youtu.be/s0E4aaqGTGQ
 
 ## How it works
 
