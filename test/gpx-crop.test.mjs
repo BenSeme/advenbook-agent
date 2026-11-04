@@ -40,3 +40,17 @@ test("computeCrop without a box crops the centre", () => {
   const r = computeCrop(null, 1200, 800, 1.5);
   assert.equal(r.left + r.width / 2, 600);
 });
+
+test("computeCrop always stays inside the image (2048x1365 regression, 4/11)", () => {
+  const sizes = [[2048, 1365], [4032, 3024], [3024, 4032], [1365, 2048], [1000, 667], [801, 533]];
+  const boxes = [null, { x1: 0, y1: 0, x2: 50, y2: 50 }, { x1: 1900, y1: 1200, x2: 2048, y2: 1365 }, { x1: 400, y1: 300, x2: 900, y2: 1100 }];
+  for (const [w, h] of sizes) {
+    for (const b of boxes) {
+      const r = computeCrop(b, w, h, 1.5);
+      assert.ok(r.left >= 0 && r.top >= 0, `${w}x${h} negative origin`);
+      assert.ok(r.left + r.width <= w, `${w}x${h} overflows width: ${JSON.stringify(r)}`);
+      assert.ok(r.top + r.height <= h, `${w}x${h} overflows height: ${JSON.stringify(r)}`);
+      assert.ok(Number.isInteger(r.left) && Number.isInteger(r.width), "whole pixels");
+    }
+  }
+});

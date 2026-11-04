@@ -29,7 +29,12 @@ export function computeCrop(
   h = Math.min(h, imgH);
   if (w / h > ratio) w = h * ratio;
   else h = w / ratio;
-  const left = Math.round(Math.min(Math.max(cx - w / 2, 0), imgW - w));
-  const top = Math.round(Math.min(Math.max(cy - h / 2, 0), imgH - h));
-  return { left, top, width: Math.round(w), height: Math.round(h) };
+  // Whole pixels that always fit: rounding w up and left up could overflow the
+  // image by 1 px (e.g. 2048x1365 -> left 1, width 2048) and sharp then
+  // rejects the crop with "bad extract area".
+  const width = Math.max(1, Math.min(imgW, Math.floor(w)));
+  const height = Math.max(1, Math.min(imgH, Math.floor(h)));
+  const left = Math.min(Math.max(Math.round(cx - width / 2), 0), imgW - width);
+  const top = Math.min(Math.max(Math.round(cy - height / 2), 0), imgH - height);
+  return { left, top, width, height };
 }
