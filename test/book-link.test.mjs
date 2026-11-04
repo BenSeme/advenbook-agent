@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  editorUrlForBook,
   editorUrlFromClaim,
+  openBookUrl,
   rewritePreviewLinks,
   stripAdvenBookUrls,
 } from "../lib/book-link.ts";
@@ -43,6 +45,26 @@ test("raw order urls are stripped from agent text (buttons carry them)", () => {
   const text =
     "Prêt : https://www.advenbook.com/fr/my-book/order?bookId=B1&token=SECRET à commander.";
   assert.equal(stripAdvenBookUrls(text), "Prêt : à commander.");
+});
+
+test("open my book: editor only with a Strava connection, claim link otherwise", () => {
+  const claim =
+    "https://www.advenbook.com/fr/my-book/preview?bookId=BOOK123&claim=SECRET&utm_source=ai_agent";
+  // No Strava account: the button must open the claim (preview) link
+  // unchanged — the editor would show the site's demo book instead.
+  assert.equal(openBookUrl(claim, false), claim);
+  assert.equal(editorUrlForBook(claim, false), undefined);
+  // Strava-connected: the book is in their account, editor is right.
+  assert.equal(
+    openBookUrl(claim, true),
+    "https://www.advenbook.com/fr/my-book/creer?bookId=BOOK123",
+  );
+  assert.equal(
+    editorUrlForBook(claim, true),
+    "https://www.advenbook.com/fr/my-book/creer?bookId=BOOK123",
+  );
+  // Unparseable claim with Strava: fall back to the claim link itself.
+  assert.equal(openBookUrl("not a url", true), "not a url");
 });
 
 test("non-preview links and junk return null", () => {

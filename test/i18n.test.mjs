@@ -39,6 +39,26 @@ test("every language has an Order my book label and note", () => {
   assert.equal(t("en", "orderBook"), "Order my book");
 });
 
+test("selection buttons and confirmation are clear in every language", () => {
+  for (const l of LANGS) {
+    assert.ok(t(l, "continueSelected").length > 3, l);
+    assert.ok(t(l, "skipCreate").length > 3, l);
+    assert.ok(t(l, "chooseNextStep").length > 30, l);
+    assert.ok(t(l, "tickedByDay").length > 20, l);
+    assert.ok(t(l, "selectionConfirmed").includes("{n}"), l);
+    assert.ok(t(l, "directCreateConfirmed").includes("{n}"), l);
+  }
+  // The two paths must read differently: questions vs create right away.
+  assert.match(t("en", "continueSelected"), /questions/);
+  assert.match(t("en", "skipCreate"), /Create the book now/);
+  assert.match(t("fr", "continueSelected"), /questions/);
+  assert.match(t("fr", "skipCreate"), /Créer le livre maintenant/);
+  assert.equal(
+    t("en", "selectionConfirmed").replace("{n}", "89"),
+    "Selection confirmed (89 outings).",
+  );
+});
+
 test("language detection from user text", () => {
   assert.equal(detectLangFromText("Je veux un livre de mon été avec mes sorties"), "fr");
   assert.equal(detectLangFromText("I want a book of my summer with my runs"), "en");

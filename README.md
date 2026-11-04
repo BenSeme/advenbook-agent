@@ -23,6 +23,17 @@ flowchart LR
 
 Flow: describe the book → connect Strava (or drop GPX + photos) → the agent proposes a shortlist (races first, warm-ups unticked, standout outings badged) → optional 1–2 questions per outing become first-person stories → format/map/cover asked once, with real prices → one click creates the draft → **Open my book**.
 
+## Without Strava
+
+No Strava? No problem — four other ways in, all ending in the same book flow:
+
+- **Garmin files:** in Garmin Connect, open an outing and download the original `.fit` (or export `.tcx` / `.gpx`). Drop the files here with the track button — they are parsed in your browser, Garmin has no link to paste.
+- **Komoot links:** paste a public Komoot tour link, share link, or public profile link (`komoot.com/user/…`) in the chat. A profile shows a checklist; only the ticked tours (and their cover photos) are imported. A private tour must be made public, shared via its share link, or exported as GPX from Komoot and dropped.
+- **A whole folder:** drop or choose a folder mixing track files (`.gpx`, `.tcx`, `.fit`) and photos (`.jpg`, `.png`, `.webp`, …). One line confirms what was found, and photos are matched to the right outing by their EXIF date.
+- **Typed list:** as a last resort, dictate or type your outings and the agent uses them as-is.
+
+Books from dropped files are created with `data_source: "gpx_files"`; Komoot books use `data_source: "other"`.
+
 ## How we use Meta AI
 
 **Muse Spark 1.3 — the art director.** It runs the whole conversation as a tool-calling agent over the AdvenBook MCP tools: it understands requests in the user's language, chooses which outings belong in the book and explains each pick in one line, interviews the athlete and turns answers into first-person stories without inventing facts, and makes design calls (format, cover, full-page heroes) from the data — photos count, race flag, elevation, route. The same model, with vision, also curates dropped photos: sharp, varied, no near-duplicates, one-line reason per keeper.

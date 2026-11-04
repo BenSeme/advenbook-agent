@@ -191,7 +191,7 @@ export function ActivitiesCard({
       <p style={{ margin: "0 0 6px", fontSize: 14 }}>
         <strong>{chosenCount} {t(lang, "ticked")}</strong> {t(lang, "on")} {e.activities.length}
         {highlights.length > 0 ? ` · ${highlights.length} ${t(lang, "toHighlight")}` : ""}
-        . Course de chaque jour cochée, échauffements décochés — vous pouvez tout valider tel quel, sans ouvrir la liste.
+        . {t(lang, "tickedByDay")}
       </p>
       {highlights.length > 0 && (
         <p style={{ margin: "0 0 6px", fontSize: 13 }}>
@@ -230,6 +230,9 @@ export function ActivitiesCard({
             </span>
           </label>
         ))}
+      <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--brand-muted)" }}>
+        {t(lang, "chooseNextStep")}
+      </p>
       <div className="row">
         <button className="btn" disabled={busy} onClick={() => onConfirm(false)}>
           {t(lang, "continueSelected")}
