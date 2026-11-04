@@ -112,6 +112,7 @@ export default function Home() {
     );
   }, [lang]);
   const [input, setInput] = useState("");
+  const createdBookRef = useRef<{ bookId: string; claimUrl: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [copiedBook, setCopiedBook] = useState("");
@@ -882,6 +883,7 @@ export default function Home() {
               ? { continueBookId: bookChoiceRef.current.bookId }
               : {}),
             pendingPhotos: photosRef.current.length,
+            ...(createdBookRef.current ? { createdBook: createdBookRef.current } : {}),
           },
           ...(turnstileToken ? { turnstileToken } : {}),
         }),
@@ -950,6 +952,7 @@ export default function Home() {
           );
         }
         if (e.kind === "book") {
+          if (e.bookId && e.claimUrl) createdBookRef.current = { bookId: e.bookId, claimUrl: e.claimUrl };
           // Surprise card: real session data only (chosen outings' stats,
           // the photos Muse Spark kept, the real book title).
           const stats = sessionStatsRef.current;

@@ -115,7 +115,7 @@ Pending photos: the known state may say how many photos are waiting in the drop 
 4b. Before creating (unless the user said "create directly"), ask ONCE, in one brief message in the user's language — never an interrogation, and never block creation: (a) Format: premium (hardcover), softcover, or carnet (spiral) — call get_book_price first and quote real prices, never invent one; pass the chosen value as format (omit if they don't care). (b) Route map on each outing: yes/no (default yes); if no, omit gps_polyline everywhere. (c) Cover: by default the first photo; ask only if they want another outing's photo in front. (d) Style — you are the art director, do not ask, decide: pass template (classique, minimaliste, magazine, noir), typography (modern, classic, adventure, basque) and photo_corners (rounded, square) on EVERY create_adventure_book / add_to_adventure_book call, chosen from THIS book's outings (official races → magazine/modern/square for a sharp sporty book; big mountain climbs → classique/adventure/rounded; long epic distances → noir/modern/square; photo-rich outings → minimaliste so the images speak; a Basque-language book → typography basque), then say why in ONE line in the user's language ("Style magazine… : vos courses officielles…"). The server validates your three values and fills any you omit from the same rules.
 Free photos: place them YOURSELF, do not interrogate the user. Decide from context (dates, content, the outings in the book): attach to the outing they belong to, or give a strong photo its own page (standalone activity, short title like "Souvenir"), or the cover if it is the best image. Say in ONE line what you did ("J'ai mis la photo du lac en pleine page après le Tourmalet") — the user can ask to move it.
 Photos plein écran: beautiful photos deserve full pages, not thumbnails, and YOU decide which ones (that judgment is your job). Quantified floor: at least 25% of the book's photos full page, spread over at least 25% of the photo-bearing outings — prioritise outings with many photos and the strongest images (summits, finishes, people), not a token one per outing. Name the chosen outings in the recap ("Pleine page conseillée : <titres>").
-5. Call create_adventure_book once per volume (usually a single volume; several only when the confirmed list exceeds the tool's activities maximum). For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, template + typography + photo_corners (your art-director pick from 4b), and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) or the raw orderUrl in your text. Give the estimated price. Prices come back with both a usd and an eur field: quote EUR for users writing in French, Spanish, German, Italian or Basque, and USD only for English speakers — never quote dollars to a European user.
+5. Call create_adventure_book once per volume (usually a single volume; several only when the confirmed list exceeds the tool's activities maximum). For Strava books you MUST pass: strava_connection_id (the connection_id from this session), data_source "strava_connector", language = the user's language, template + typography + photo_corners (your art-director pick from 4b), and for EVERY chosen activity its strava_activity_id exactly as listed, plus title/date/distance/elevation/duration/sport copied unchanged and its story (empty if skipped). If list_strava_activities returned a gps_polyline for an activity, copy it unchanged into that activity — without a polyline or a strava_activity_id the book page has no route map and no Strava photos. Keep Strava titles unchanged unless the user asks. The BOOK title (title field) is short, 2 to 6 words: the title the user explicitly gave, otherwise one you invent from the period, place and sport (e.g. "Summer of Trails", "Mon été pyrénéen"). NEVER copy the user's request sentence as the title. Then say the book is ready and the user can open it with the "Open my book" button shown below your message — do NOT paste the raw claimUrl (preview link) or the raw orderUrl in your text. Give the estimated price. Prices come back with both a usd and an eur field: quote EUR for users writing in French, Spanish, German, Italian or Basque, and USD only for English speakers — never quote dollars to a European user.
 Ordering: next to "Open my book" there is an "Order my book" button (the tool's orderUrl): it creates the user's account in one click, then lands on AdvenBook's secure Stripe payment page. You may point to that button in one line. NEVER ask for card details, a billing/shipping address, or any payment information in this chat — payment and address happen only on that secure page. Never say the book is ordered or paid until the user tells you they completed payment there: before that, it is still a draft.
 After the book is created, if the user asks to change its look, title or format (darker, cream paper, other fonts, square photos, another cover layout, softcover, a new title...), call update_adventure_book with the claimUrl returned by create_adventure_book (or with strava_connection_id + book_id for a Strava book), passing ONLY what they asked to change. Then say in one line what changed and that they will see it when they open or refresh their book. Never say a change was made if the tool returned an error.
 
@@ -187,6 +187,7 @@ export async function runAgent(
     bookChoice?: BookChoice | null;
     conversationId?: string;
     pendingPhotos?: number;
+    createdBook?: { bookId: string; claimUrl: string } | null;
   },
 ): Promise<{
   reply: string;
@@ -206,6 +207,7 @@ export async function runAgent(
   const ui: UiEvent[] = [];
   const toolEvents: ToolEvent[] = [];
   const polylineById = new Map<string, string>();
+  let createdBook = context?.createdBook ?? null;
   const french = detectFrench(history);
   // The book-size ceiling comes from the live tool schema, never hard-coded.
   const createTool = allTools.find((x) => x.function.name === "create_adventure_book");
@@ -249,6 +251,14 @@ export async function runAgent(
           {
             role: "system",
             content: `The user picked this cover photo (they tapped it on the cover-choice card): ${context.coverPhotoUrl}. At book creation you MUST pass it as cover_photo_url. The server also enforces it.`,
+          } as ChatMessage,
+        ]
+      : []),
+    ...(context?.createdBook
+      ? [
+          {
+            role: "system",
+            content: `A book was ALREADY created in this conversation: book_id = ${context.createdBook.bookId}, claimUrl = ${context.createdBook.claimUrl}. Any change the user asks now (title, format, colours, paper, fonts, photo shape, cover) is an update_adventure_book call on THIS book (the server fills the book reference): never create another book for a change, never say you are missing the book reference.`,
           } as ChatMessage,
         ]
       : []),
@@ -312,6 +322,27 @@ export async function runAgent(
       }
       let effectiveName = name;
       let effectiveArgs = args;
+      // The book made earlier (this turn or a previous one): an update always
+      // targets it, the model cannot lose the reference between turns.
+      if (name === "update_adventure_book" && createdBook && !args.book_id) {
+        args.claim_url = createdBook.claimUrl;
+        if (context?.connectionId) {
+          args.strava_connection_id = context.connectionId;
+          args.book_id = createdBook.bookId;
+        }
+      }
+      if (name === "create_adventure_book") {
+        const firstAsk = (history.find((m) => m.role === "user")?.content ?? "").trim();
+        const title = String(args.title ?? "").trim();
+        if (
+          !title ||
+          title.length > 60 ||
+          (firstAsk && firstAsk.toLowerCase().startsWith(title.toLowerCase().slice(0, 30))) ||
+          /^(make|create|build|i want|fais|crée|cree|je veux|haz|crea|mach|erstelle)/i.test(title)
+        ) {
+          args.title = french ? "Ma saison d'aventures" : "My season of adventures";
+        }
+      }
       const isBookWrite =
         name === "create_adventure_book" || name === "add_to_adventure_book";
       if (isBookWrite) {
@@ -480,6 +511,12 @@ export async function runAgent(
               Boolean(effectiveArgs.strava_connection_id),
           );
           await noteToolSuccess(effectiveName, result);
+          {
+            const cr = asRecord(result);
+            if (effectiveName === "create_adventure_book" && typeof cr.claimUrl === "string") {
+              createdBook = { bookId: String(cr.bookId ?? ""), claimUrl: cr.claimUrl };
+            }
+          }
           if (isBookWrite) {
             const r = asRecord(result);
             // Only on real success (a claim/editor link came back):

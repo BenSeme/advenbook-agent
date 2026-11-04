@@ -23,7 +23,8 @@ import {
 } from "@/lib/tracking";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 85 outings in one turn can take the model well over a minute
+export const maxDuration = 300;
 
 type Incoming = { role?: unknown; content?: unknown };
 
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
       continueBookId?: unknown;
       bookChoice?: unknown;
       pendingPhotos?: unknown;
+      createdBook?: unknown;
     };
     turnstileToken?: unknown;
     conversationId?: unknown;
@@ -140,6 +142,19 @@ export async function POST(req: Request) {
         .slice(0, 200)
     : undefined;
 
+  // The book created earlier in this conversation (from the "book" card), so a
+  // later "rename it" / "make it darker" always reaches the same book.
+  const cb = body.context?.createdBook as { bookId?: unknown; claimUrl?: unknown } | undefined;
+  const createdBook =
+    cb &&
+    typeof cb.bookId === "string" &&
+    cb.bookId.length <= 100 &&
+    typeof cb.claimUrl === "string" &&
+    cb.claimUrl.length <= 500 &&
+    /^https:\/\/(www\.)?advenbook\.com\//.test(cb.claimUrl)
+      ? { bookId: cb.bookId, claimUrl: cb.claimUrl }
+      : null;
+
   const pendingPhotos =
     typeof body.context?.pendingPhotos === "number" && Number.isFinite(body.context.pendingPhotos)
       ? Math.max(0, Math.min(300, Math.floor(body.context.pendingPhotos)))
@@ -184,6 +199,7 @@ export async function POST(req: Request) {
           bookChoice,
           conversationId,
           pendingPhotos,
+          createdBook,
         }),
       ),
     );
