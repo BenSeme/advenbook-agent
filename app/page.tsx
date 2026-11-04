@@ -289,8 +289,8 @@ export default function Home() {
           role: "assistant",
           content:
             activities.length === 0
-              ? "Connexion bien reçue, mais je ne vois aucune sortie sur cette période. Dites-moi une autre période (par exemple « toutes mes sorties 2025 »), ou vérifiez que Strava est bien connecté."
-              : `Connexion bien reçue — voici vos ${activities.length} sorties. La course principale de chaque jour est cochée, les échauffements sont décochés (recochables). Décochez ce que vous ne voulez pas, puis « Continuer ».`,
+              ? t(lang, "connectedNone")
+              : t(lang, "connectedList").replace("{n}", String(activities.length)),
           ui: activities.length
             ? [{ kind: "activities", activities }]
             : undefined,
@@ -685,7 +685,7 @@ export default function Home() {
       .map((p) => p.uploadedUrl as string);
     void send(
       `Crée un livre sans Strava (source ${dataSource}) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. Place-les toi-même (rattachées à la bonne sortie, en pleine page, ou en page photo à part avec un titre court), sans me demander, et dis-moi en une ligne ce que tu as fait.` : ""}`,
-      `Créer le livre avec mes ${manual.length} sortie(s) ajoutée(s) (GPX/photos).`,
+      t(lang, "createManualDisplay").replace("{n}", String(manual.length)),
     );
   }
 
@@ -1102,7 +1102,7 @@ export default function Home() {
               <button
                 className="btn"
                 disabled={busy}
-                onClick={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
+                onClick={() => void fetchActivities(t(lang, "stravaDone"))}
               >
                 {t(lang, "resumeBtn")}
               </button>
@@ -1138,7 +1138,7 @@ export default function Home() {
                     e={e}
                     lang={lang}
                     busy={busy}
-                    onConnected={() => void fetchActivities("C’est fait, je me suis connecté à Strava.")}
+                    onConnected={() => void fetchActivities(t(lang, "stravaDone"))}
                   />
                 );
               }
