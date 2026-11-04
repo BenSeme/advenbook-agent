@@ -75,4 +75,4 @@ Deploy: any Next.js host (Vercel recommended). Set the same variables in the hos
 
 ## Licence
 
-Proprietary — © AdvenBook, all rights reserved. This is a private repository: do not copy, distribute, or publish its contents. AdvenBook logos in [brand/](brand/) are trademarks of AdvenBook.
+Proprietary — © AdvenBook, all rights reserved. The source is public so the Meta Global AI Developer Hackathon judges can review it; it is not open-source licensed: do not copy, redistribute, or reuse it without permission. AdvenBook logos in [brand/](brand/) are trademarks of AdvenBook.
