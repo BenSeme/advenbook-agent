@@ -59,6 +59,9 @@ export type PhotoItem = {
   activityId: string;
   kept: boolean | null;
   reason?: string;
+  /** Full-quality original, uploaded straight from the browser to Blob. */
+  originalUrl?: string;
+  /** Cropped URL returned by /api/photos/process (falls back to originalUrl). */
   uploadedUrl?: string;
   status?: string;
 };

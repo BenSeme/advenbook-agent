@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type MouseEvent } from "react";
-import { activityBadges, isHighlight, isLikelyWarmup } from "@/lib/highlights";
+import { activityBadgeKeys, isHighlight, isLikelyWarmup } from "@/lib/highlights";
 import { fmtDistance, fmtElevation, fmtPrice, t, type Lang } from "@/lib/i18n";
 import type { Activity, MyBook, UiEvent } from "@/lib/chat-types";
 
@@ -214,9 +214,19 @@ export function ActivitiesCard({
               {a.title}
               {isHighlight(a) && (
                 <span className="badges">
-                  <span className="badge star">À mettre en valeur</span>
-                  {activityBadges(a).map((b) => (
-                    <span className="badge" key={b}>{b}</span>
+                  <span className="badge star">{t(lang, "highlightBadge")}</span>
+                  {activityBadgeKeys(a).map((b) => (
+                    <span className="badge" key={b.key}>
+                      {b.key === "photos"
+                        ? t(lang, "badgePhotos").replace("{n}", String(b.count ?? 0))
+                        : b.key === "race"
+                          ? t(lang, "badgeRace")
+                          : b.key === "route"
+                            ? t(lang, "badgeRoute")
+                            : b.key === "elevation"
+                              ? t(lang, "badgeElevation")
+                              : t(lang, "badgeDistance")}
+                    </span>
                   ))}
                 </span>
               )}
@@ -225,7 +235,7 @@ export function ActivitiesCard({
                 {a.sport ? ` · ${a.sport}` : ""}
                 {a.distance_km != null ? ` · ${fmtDistance(a.distance_km, lang)}` : ""}
                 {a.elevation_gain_m != null ? ` · ${fmtElevation(a.elevation_gain_m, lang)}` : ""}
-                {isLikelyWarmup(a, e.activities) ? " · échauffement probable — décoché par défaut" : ""}
+                {isLikelyWarmup(a, e.activities) ? ` · ${t(lang, "warmupNote")}` : ""}
               </small>
             </span>
           </label>
@@ -311,9 +321,7 @@ export function BookCard({
           </a>
         )}
         <button className="btn secondary" onClick={copy}>
-          {copiedBook === (e.bookId || "1")
-            ? lang === "en" ? "Link copied" : "Lien copié"
-            : lang === "en" ? "Copy the book link" : "Copier le lien du livre"}
+          {copiedBook === (e.bookId || "1") ? t(lang, "linkCopied") : t(lang, "copyBookLink")}
         </button>
       </div>
       {e.orderUrl && (
@@ -322,9 +330,7 @@ export function BookCard({
         </p>
       )}
       <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
-        {lang === "en"
-          ? "If this preview replaces the agent page (embedded browser), copy the link and open it in Chrome or Safari — nothing is lost, the book is saved."
-          : "Si cet aperçu remplace la page de l’agent (navigateur intégré), copiez le lien et ouvrez-le dans Chrome ou Safari — rien n’est perdu, le livre est enregistré."}
+        {t(lang, "previewNote")}
       </p>
     </div>
   );

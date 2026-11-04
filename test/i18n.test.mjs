@@ -1,6 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { t, LANGS, detectLangFromText, detectDevice, fmtDistance, fmtElevation, fmtPrice } from "../lib/i18n.ts";
+import { t, LANGS, DICT_KEYS, detectLangFromText, detectDevice, fmtDistance, fmtElevation, fmtPrice } from "../lib/i18n.ts";
+
+test("every dict key exists and is non-empty in all 6 languages", () => {
+  assert.ok(DICT_KEYS.length > 50);
+  for (const key of DICT_KEYS) {
+    for (const l of LANGS) {
+      const v = t(l, key);
+      assert.ok(typeof v === "string" && v.length > 0, `${key} missing in ${l}`);
+    }
+  }
+});
+
+test("photo-flow keys are translated in every language", () => {
+  for (const l of LANGS) {
+    assert.ok(t(l, "photoTooLarge").length > 5, l);
+    assert.ok(t(l, "seeSortPhotos").length > 3, l);
+    assert.ok(t(l, "hidePhotos").length > 3, l);
+    assert.ok(t(l, "photosReadySkipped").includes("{ready}"), l);
+    assert.ok(t(l, "photosReadySkipped").includes("{skipped}"), l);
+    assert.ok(t(l, "foundTracksPhotos").includes("{tracks}"), l);
+    assert.ok(t(l, "komootFound").includes("{n}"), l);
+    assert.ok(t(l, "fileReadError").includes("{name}"), l);
+  }
+  assert.equal(t("en", "seeSortPhotos"), "See and sort photos");
+  assert.equal(t("fr", "seeSortPhotos"), "Voir et trier les photos");
+  assert.equal(t("en", "hidePhotos"), "Hide photos");
+  assert.equal(t("fr", "hidePhotos"), "Masquer les photos");
+});
 
 test("every language has a Send label", () => {
   for (const l of LANGS) assert.ok(t(l, "send").length > 1);

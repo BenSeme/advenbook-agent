@@ -23,7 +23,7 @@ export function KomootCard({
   const chosen = e.tours.filter((tour) => selected[tour.id]);
   return (
     <div className="card">
-      <h2>{lang === "en" ? "Your Komoot outings" : "Vos sorties Komoot"}</h2>
+      <h2>{t(lang, "komootTitle")}</h2>
       <p style={{ margin: "0 0 6px", fontSize: 14 }}>
         <strong>
           {chosen.length} {t(lang, "ticked")}
@@ -54,7 +54,7 @@ export function KomootCard({
           disabled={busy || chosen.length === 0}
           onClick={() => onImport(chosen.map((tour) => tour.id))}
         >
-          {lang === "en" ? `Import selected (${chosen.length})` : `Importer la sélection (${chosen.length})`}
+          {t(lang, "importSelected").replace("{n}", String(chosen.length))}
         </button>
       </div>
     </div>

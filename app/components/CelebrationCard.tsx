@@ -94,11 +94,11 @@ export function CelebrationCard({
           </div>
           <div className="cele-stat">
             <span className="cele-num">{fmtDistance(Math.round(display.km * 10) / 10, lang) || "0"}</span>
-            <span className="cele-label">{lang === "en" ? "distance" : "distance"}</span>
+            <span className="cele-label">{t(lang, "distanceLabel")}</span>
           </div>
           <div className="cele-stat">
             <span className="cele-num">{fmtElevation(display.elev, lang) || "0"}</span>
-            <span className="cele-label">{lang === "en" ? "elevation gain" : "dénivelé"}</span>
+            <span className="cele-label">{t(lang, "elevationLabel")}</span>
           </div>
         </div>
       )}

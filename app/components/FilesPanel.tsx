@@ -110,9 +110,9 @@ export function FilesPanel({
     const imgs = capped.filter(isImageFile);
     if (tracks.length || imgs.length) {
       setFoundLine(
-        lang === "en"
-          ? `Found ${tracks.length} outings and ${imgs.length} photos`
-          : `Trouvé ${tracks.length} sortie(s) et ${imgs.length} photo(s)`,
+        t(lang, "foundTracksPhotos")
+          .replace("{tracks}", String(tracks.length))
+          .replace("{photos}", String(imgs.length)),
       );
     }
     if (onFolderFiles) {
@@ -124,15 +124,15 @@ export function FilesPanel({
   }
   const shortHint =
     device === "iphone"
-      ? lang === "en" ? "iPhone — Photos opens directly." : "iPhone — la photothèque s’ouvre directement."
+      ? t(lang, "shortHintIphone")
       : device === "android"
-        ? lang === "en" ? "Android — your gallery opens directly." : "Android — la galerie s’ouvre directement."
-        : lang === "en" ? "Drop files here, or use the buttons." : "Glissez des fichiers ici, ou utilisez les boutons.";
+        ? t(lang, "shortHintAndroid")
+        : t(lang, "shortHintDesktop");
 
   return (
     <section
       className="files-panel"
-      aria-label="Ajouter GPX et photos"
+      aria-label={t(lang, "addFilesLabel")}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
@@ -209,14 +209,14 @@ export function FilesPanel({
       ))}
       {photos.length > 0 && (
         <>
-          <div className="photo-strip" aria-label="Photos ajoutées">
+          <div className="photo-strip" aria-label={t(lang, "photosAddedLabel")}>
             {photos.map((p) => (
               <span key={p.id} style={{ position: "relative", flex: "none" }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={p.thumb}
                   alt={p.name}
-                  title={`${p.name} — ${p.kept === true ? "gardée" : p.kept === false ? "écartée" : "ajoutée"}${p.reason ? ` : ${p.reason}` : ""}`}
+                  title={`${p.name} — ${p.kept === true ? t(lang, "keptWord") : p.kept === false ? t(lang, "droppedWord") : t(lang, "addedWord")}${p.reason ? ` : ${p.reason}` : ""}`}
                 />
                 <button
                   type="button"
@@ -244,8 +244,8 @@ export function FilesPanel({
               </span>
             ))}
             <span style={{ fontSize: 13, alignSelf: "center" }}>
-              {photos.length} photo(s)
-              {photos.some((p) => p.kept) ? ` · ${photos.filter((p) => p.kept).length} gardée(s)` : ""}
+              {t(lang, "photosCount").replace("{n}", String(photos.length))}
+              {photos.some((p) => p.kept) ? ` · ${t(lang, "keptCount").replace("{n}", String(photos.filter((p) => p.kept).length))}` : ""}
             </span>
             <button
               className="btn secondary"
@@ -253,14 +253,14 @@ export function FilesPanel({
               onClick={onTogglePhotosOpen}
               aria-expanded={photosOpen}
             >
-              {photosOpen ? "Masquer le détail" : "Détail / ranger"}
+              {photosOpen ? t(lang, "hidePhotos") : t(lang, "seeSortPhotos")}
             </button>
             <button
               className="btn secondary"
               style={{ minHeight: 36, padding: "6px 10px" }}
               onClick={onClearPhotos}
             >
-              {lang === "en" ? "Clear all" : "Tout retirer"}
+              {t(lang, "clearAll")}
             </button>
           </div>
           {photosOpen && (
@@ -270,16 +270,16 @@ export function FilesPanel({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={p.thumb} alt={p.name} />
                   <figcaption>
-                    {p.exifDate ?? "date inconnue"}
-                    {p.kept === true ? " · gardée" : p.kept === false ? " · écartée" : ""}
+                    {p.exifDate ?? t(lang, "unknownDate")}
+                    {p.kept === true ? ` · ${t(lang, "keptWord")}` : p.kept === false ? ` · ${t(lang, "droppedWord")}` : ""}
                     {p.reason ? ` — ${p.reason}` : ""}
                     {p.status ? ` · ${p.status}` : ""}
                     <select
                       value={p.activityId}
                       onChange={(e) => onAssignPhoto(p.id, e.target.value)}
-                      aria-label="Sortie de cette photo"
+                      aria-label={t(lang, "photoOuting")}
                     >
-                      <option value="">Photo libre — l’agent la place tout seul</option>
+                      <option value="">{t(lang, "freePhotoOption")}</option>
                       {known.map((k) => (
                         <option key={k.id} value={k.id}>
                           {k.title} ({k.date})
@@ -293,15 +293,11 @@ export function FilesPanel({
           )}
           <div className="row">
             <button className="btn cta" disabled={photoBusy || busy} onClick={onPreparePhotos}>
-              {photoBusy
-                ? lang === "en" ? "Preparing…" : "Préparation en cours…"
-                : lang === "en" ? "Use these photos in the book" : "Utiliser ces photos dans le livre"}
+              {photoBusy ? t(lang, "preparingPhotos") : t(lang, "usePhotosInBook")}
             </button>
           </div>
           <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
-            {lang === "en"
-              ? "One tap: the AI keeps the best, crops them safely, sends them, and places free photos itself (attached, full page, or its own page)."
-              : "Un seul toucher : l’IA garde les meilleures, les recadre sans couper le sujet, les envoie, et place elle-même les photos libres (rattachées, pleine page, ou page à part)."}
+            {t(lang, "usePhotosNote")}
           </p>
         </>
       )}

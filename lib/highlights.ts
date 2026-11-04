@@ -14,6 +14,18 @@ export type HighlightActivity = {
   [key: string]: unknown;
 };
 
+export type BadgeKey = "photos" | "race" | "route" | "elevation" | "distance";
+
+export function activityBadgeKeys(a: HighlightActivity): { key: BadgeKey; count?: number }[] {
+  const out: { key: BadgeKey; count?: number }[] = [];
+  if (typeof a.photos === "number" && a.photos >= 3) out.push({ key: "photos", count: a.photos });
+  if (a.is_race) out.push({ key: "race" });
+  if (a.has_route && (a.elevation_gain_m ?? 0) >= 800) out.push({ key: "route" });
+  if ((a.elevation_gain_m ?? 0) >= 1500) out.push({ key: "elevation" });
+  if ((a.distance_km ?? 0) >= 80) out.push({ key: "distance" });
+  return out;
+}
+
 export function activityBadges(a: HighlightActivity): string[] {
   const badges: string[] = [];
   if (typeof a.photos === "number" && a.photos >= 3) {

@@ -1,6 +1,9 @@
 // Browser file helpers for GPX/photo drops.
+// Photos are NOT sent through our API routes as data URLs: they are
+// uploaded straight from the browser to Vercel Blob (full quality) and
+// only their public URL travels onwards (see app/page.tsx preparePhotos).
 
-/** Downscaled JPEG data URL (for vision), with a FileReader fallback. */
+/** Downscaled JPEG data URL (small previews), with a FileReader fallback. */
 export async function fileToDataUrl(file: File, maxDim = 900): Promise<string> {
   try {
     const bmp = await createImageBitmap(file);
@@ -15,7 +18,7 @@ export async function fileToDataUrl(file: File, maxDim = 900): Promise<string> {
   }
 }
 
-/** Full-resolution data URL (for SAM crop + upload). */
+/** Full-resolution data URL read locally (no network, no size cap). */
 export function fullDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();

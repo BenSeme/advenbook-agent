@@ -7,8 +7,11 @@ import { isConversationId, withConversationContext } from "@/lib/tracking";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// Receives only { id, url } pairs (public Blob URLs uploaded straight from
+// the browser). No image bytes in the body, so no request-size limit can
+// drop a photo. Legacy { id, dataUrl } is still accepted.
 export async function POST(req: Request) {
-  if (await rateLimited(`photos-select:${clientIp(req)}`, 12, 10 * 60 * 1000)) {
+  if (await rateLimited(`photos-select:${clientIp(req)}`, 30, 10 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many photo analyses — retry in a few minutes." }, { status: 429 });
   }
   let body: { outingTitle?: unknown; images?: unknown; conversationId?: unknown };
@@ -19,18 +22,22 @@ export async function POST(req: Request) {
   }
   const outingTitle =
     typeof body.outingTitle === "string" ? body.outingTitle.slice(0, 200) : "Sortie";
-  const images = Array.isArray(body.images)
-    ? body.images
-        .filter(
-          (i): i is { id: string; dataUrl: string } =>
-            typeof i === "object" &&
-            i !== null &&
-            typeof (i as { id?: unknown }).id === "string" &&
-            typeof (i as { dataUrl?: unknown }).dataUrl === "string" &&
-            (i as { dataUrl: string }).dataUrl.startsWith("data:image/"),
-        )
-        .slice(0, 12)
-    : [];
+  const images = (
+    Array.isArray(body.images)
+      ? body.images.flatMap((i): { id: string; dataUrl: string }[] => {
+          if (typeof i !== "object" || i === null) return [];
+          const rec = i as { id?: unknown; url?: unknown; dataUrl?: unknown };
+          if (typeof rec.id !== "string") return [];
+          if (typeof rec.url === "string" && rec.url.startsWith("https://")) {
+            return [{ id: rec.id, dataUrl: rec.url }];
+          }
+          if (typeof rec.dataUrl === "string" && rec.dataUrl.startsWith("data:image/")) {
+            return [{ id: rec.id, dataUrl: rec.dataUrl }];
+          }
+          return [];
+        })
+      : []
+  ).slice(0, 12);
   if (images.length === 0) {
     return NextResponse.json({ error: "No images received." }, { status: 400 });
   }

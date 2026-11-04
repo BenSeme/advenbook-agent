@@ -25,7 +25,8 @@ import type {
   PhotoItem,
   UiEvent,
 } from "@/lib/chat-types";
-import { fileToDataUrl, fullDataUrl } from "@/lib/files";
+import { upload } from "@vercel/blob/client";
+import { blobPathnameFor, chunkItems, errorKeyForStatus, parseJsonText } from "@/lib/photo-payload";
 import { encodeWav } from "@/lib/voice";
 import { ActivitiesCard, BookCard, ConnectCard, CoverCard, MyBooksCard } from "./components/cards";
 import {
@@ -40,7 +41,7 @@ import { KomootCard } from "./components/KomootCard";
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre. Pas de Strava ? Aucun souci : Garmin, Komoot ou un dossier de fichiers GPX + photos feront l’affaire — glissez-les ci-dessous ou collez un lien Komoot.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language. No Strava? No problem: Garmin, Komoot or a folder of GPX files + photos works too — drop them below or paste a Komoot link.",
+    "Hi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language. No Strava? No problem: Garmin, Komoot or a folder of GPX files + photos works too — drop them below or paste a Komoot link.",
 };
 
 /** Same-day rule: main outing ticked, warm-ups unticked. No count cap. */
@@ -143,6 +144,10 @@ export default function Home() {
   const [photosOpen, setPhotosOpen] = useState(false);
   const [manual, setManual] = useState<ManualActivity[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const photosRef = useRef<PhotoItem[]>([]);
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const photoFiles = useRef(new Map<string, File>());
   const [listOpen, setListOpen] = useState(false);
@@ -220,6 +225,17 @@ export default function Home() {
     return conversationRef.current;
   }
 
+  /** Read a fetch response as JSON without ever surfacing a raw parser
+   *  error (Vercel answers 413 as plain text, not JSON). */
+  async function parseResponse<T>(res: Response): Promise<T> {
+    const text = await res.text();
+    const parsed = parseJsonText(text);
+    if (!parsed.ok) {
+      throw new Error(t(lang, errorKeyForStatus(res.status)));
+    }
+    return parsed.value as T;
+  }
+
   function rememberConnection(id: string) {
     setConnectionId(id);
     window.localStorage.setItem("ab-connection-id", id);
@@ -233,7 +249,7 @@ export default function Home() {
       : messages;
     setMessages(base);
     setBusy(true);
-    setStatus("Lecture de vos sorties Strava…");
+    setStatus(t(lang, "stravaReading"));
     try {
       const res = await fetch("/api/strava/activities", {
         method: "POST",
@@ -245,19 +261,17 @@ export default function Home() {
           ...(bookChoiceRef.current ? { bookChoice: bookChoiceRef.current } : {}),
         }),
       });
-      const data = (await res.json()) as {
+      const data = await parseResponse<{
         activities?: Activity[];
         books?: MyBook[];
         error?: string;
-      };
+      }>(res);
       if (!res.ok || data.error) {
         setMessages([
           ...base,
           {
             role: "assistant",
-            content:
-              data.error ??
-              "La lecture Strava a échoué. Reconnectez-vous puis cliquez Continuer.",
+            content: data.error ?? t(lang, "stravaReadFailed"),
           },
         ]);
         return;
@@ -301,8 +315,7 @@ export default function Home() {
         ...base,
         {
           role: "assistant",
-          content:
-            "Je n’ai pas pu joindre le serveur pour lire vos sorties. Réessayez dans un instant.",
+          content: t(lang, "stravaNetworkError"),
         },
       ]);
     } finally {
@@ -331,7 +344,7 @@ export default function Home() {
           ...msgs,
           {
             role: "assistant",
-            content: `Je n’ai pas pu lire le fichier « ${file.name} » (trace introuvable). Vérifiez que c’est bien un .gpx, .tcx ou .fit Garmin avec des points GPS.`,
+            content: t(lang, "fileReadError").replace("{name}", file.name),
           },
         ]);
       }
@@ -365,21 +378,21 @@ export default function Home() {
     const base: Msg[] = [...messages, { role: "user", content: userText }];
     setMessages(base);
     setBusy(true);
-    setStatus(lang === "en" ? "Reading Komoot…" : "Lecture de Komoot…");
+    setStatus(t(lang, "readingKomoot"));
     try {
       const res = await fetch("/api/komoot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      const data = (await res.json()) as {
+      const data = await parseResponse<{
         mode?: string;
         tours?: Extract<UiEvent, { kind: "komoot" }>["tours"];
         outings?: GpxActivity[];
         error?: string;
-      };
+      }>(res);
       if (!res.ok || data.error) {
-        setMessages([...base, { role: "assistant", content: data.error ?? "Komoot : lecture impossible." }]);
+        setMessages([...base, { role: "assistant", content: data.error ?? t(lang, "komootReadError") }]);
         return;
       }
       if (data.mode === "profile" && data.tours?.length) {
@@ -388,10 +401,7 @@ export default function Home() {
           ...base,
           {
             role: "assistant",
-            content:
-              lang === "en"
-                ? `I found ${data.tours.length} public Komoot outings. Untick the ones you don't want, then import the selection — Garmin, Komoot or a folder of GPX + photos all work here, no Strava needed.`
-                : `J’ai trouvé ${data.tours.length} sorties Komoot publiques. Décochez celles que vous ne voulez pas, puis importez la sélection — Garmin, Komoot ou un dossier GPX + photos, tout marche ici, sans Strava.`,
+            content: t(lang, "komootFound").replace("{n}", String(data.tours.length)),
             ui: [{ kind: "komoot", tours: data.tours, ...(shareToken ? { shareToken } : {}) }],
           },
         ]);
@@ -403,10 +413,7 @@ export default function Home() {
         ...base,
         {
           role: "assistant",
-          content:
-            lang === "en"
-              ? `${outings.length} Komoot outing(s) added below. Add your photos if you like, then tap “Create the book with my outings”.`
-              : `${outings.length} sortie(s) Komoot ajoutée(s) ci-dessous. Ajoutez vos photos si vous voulez, puis touchez « Créer le livre avec mes sorties ».`,
+          content: t(lang, "komootAdded").replace("{n}", String(outings.length)),
         },
       ]);
     } catch {
@@ -420,16 +427,16 @@ export default function Home() {
   async function importKomootTours(tourIds: string[], shareToken?: string) {
     if (busy || tourIds.length === 0) return;
     setBusy(true);
-    setStatus(lang === "en" ? "Reading Komoot…" : "Lecture de Komoot…");
+    setStatus(t(lang, "readingKomoot"));
     try {
       const res = await fetch("/api/komoot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tourIds, ...(shareToken ? { shareToken } : {}) }),
       });
-      const data = (await res.json()) as { outings?: GpxActivity[]; error?: string };
+      const data = await parseResponse<{ outings?: GpxActivity[]; error?: string }>(res);
       if (!res.ok || data.error) {
-        setMessages((msgs) => [...msgs, { role: "assistant", content: data.error ?? "Komoot : lecture impossible." }]);
+        setMessages((msgs) => [...msgs, { role: "assistant", content: data.error ?? t(lang, "komootReadError") }]);
         return;
       }
       const outings = data.outings ?? [];
@@ -438,10 +445,7 @@ export default function Home() {
         ...msgs,
         {
           role: "assistant",
-          content:
-            lang === "en"
-              ? `${outings.length} Komoot outing(s) added below. Add your photos if you like, then tap “Create the book with my outings”.`
-              : `${outings.length} sortie(s) Komoot ajoutée(s) ci-dessous. Ajoutez vos photos si vous voulez, puis touchez « Créer le livre avec mes sorties ».`,
+          content: t(lang, "komootAdded").replace("{n}", String(outings.length)),
         },
       ]);
     } catch {
@@ -511,11 +515,52 @@ export default function Home() {
   async function preparePhotos() {
     if (photoBusy || photos.length === 0) return;
     setPhotoBusy(true);
-    setStatus(lang === "en" ? "Choosing your best photos…" : "Choix de vos meilleures photos…");
+    setStatus(t(lang, "choosingPhotos"));
+    let firstError: string | null = null;
+    const noteError = (err: unknown) => {
+      if (!firstError) {
+        firstError = err instanceof Error ? err.message : t(lang, "invalidResponse");
+      }
+    };
     try {
       const known = knownDates();
+      // 1) Direct browser -> Vercel Blob upload, full quality, per photo.
+      //    The bytes never pass through an API route, so no photo can be
+      //    rejected for its size. Only the returned URL travels onwards.
+      setStatus(t(lang, "uploadingPhotos"));
+      const originals = new Map<string, string>();
+      for (const p of photos) {
+        if (p.originalUrl) {
+          originals.set(p.id, p.originalUrl);
+          continue;
+        }
+        const file = photoFiles.current.get(p.id);
+        if (!file) continue;
+        try {
+          const blob = await upload(blobPathnameFor(p.id, p.name), file, {
+            access: "public",
+            handleUploadUrl: "/api/photos/upload",
+            contentType: file.type || undefined,
+            multipart: file.size >= 4 * 1024 * 1024,
+          });
+          originals.set(p.id, blob.url);
+          setPhotos((prev) =>
+            prev.map((x) => (x.id === p.id ? { ...x, originalUrl: blob.url } : x)),
+          );
+        } catch (err) {
+          // This photo stays in the drop zone for a retry; others continue.
+          noteError(err);
+          const msg = err instanceof Error ? err.message : t(lang, "photoUploadFailed");
+          setPhotos((prev) =>
+            prev.map((x) => (x.id === p.id ? { ...x, status: msg } : x)),
+          );
+        }
+      }
+      // 2) Vision selection by URL only (tiny bodies, batched at the cap).
+      setStatus(t(lang, "choosingPhotos"));
       const groups = new Map<string, PhotoItem[]>();
       for (const p of photos) {
+        if (!originals.has(p.id)) continue;
         const key = p.activityId || "__free__";
         groups.set(key, [...(groups.get(key) ?? []), p]);
       }
@@ -524,27 +569,30 @@ export default function Home() {
       for (const [activityId, group] of groups) {
         const title =
           activityId === "__free__"
-            ? "Photos libres"
-            : (known.find((k) => k.id === activityId)?.title ?? "Sortie");
-        const images = await Promise.all(
-          group.map(async (p) => ({
-            id: p.id,
-            dataUrl: await fileToDataUrl(photoFiles.current.get(p.id) as File),
-          })),
-        );
-        const res = await fetch("/api/photos/select", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ outingTitle: title, images, conversationId: conversationInfo().id }),
-        });
-        const data = (await res.json()) as {
-          keep?: { id: string; reason: string }[];
-          error?: string;
-        };
-        if (!res.ok || data.error) throw new Error(data.error ?? "Analyse impossible");
-        for (const k of data.keep ?? []) {
-          keepIds.add(k.id);
-          reasons.set(k.id, k.reason);
+            ? t(lang, "freePhotos")
+            : (known.find((k) => k.id === activityId)?.title ?? t(lang, "outingFallback"));
+        const images = group.map((p) => ({ id: p.id, url: originals.get(p.id) as string }));
+        for (const batch of chunkItems(images)) {
+          try {
+            const res = await fetch("/api/photos/select", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ outingTitle: title, images: batch, conversationId: conversationInfo().id }),
+            });
+            const data = await parseResponse<{
+              keep?: { id: string; reason: string }[];
+              error?: string;
+            }>(res);
+            if (!res.ok || data.error) throw new Error(data.error ?? t(lang, "analysisFailed"));
+            for (const k of data.keep ?? []) {
+              keepIds.add(k.id);
+              reasons.set(k.id, k.reason);
+            }
+          } catch (err) {
+            // One failed batch must not stop the others: keep its photos.
+            noteError(err);
+            for (const img of batch) keepIds.add(img.id);
+          }
         }
       }
       if (keepIds.size === 0) {
@@ -553,7 +601,10 @@ export default function Home() {
       setPhotos((prev) =>
         prev.map((p) => ({ ...p, kept: keepIds.has(p.id), reason: reasons.get(p.id) })),
       );
-      setStatus(lang === "en" ? "Cropping and uploading…" : "Recadrage et envoi…");
+      // 3) SAM crop by URL only. If cropping fails for any reason, the
+      //    full-quality original (already public on Blob) is used as-is:
+      //    every kept photo reaches the book, whatever its size.
+      setStatus(t(lang, "croppingUploading"));
       const uploaded = new Map<string, string>();
       for (const p of photos) {
         if (!keepIds.has(p.id)) continue;
@@ -561,28 +612,35 @@ export default function Home() {
           uploaded.set(p.id, p.uploadedUrl);
           continue;
         }
-        const file = photoFiles.current.get(p.id);
-        if (!file) continue;
-        const res = await fetch("/api/photos/process", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            dataUrl: await fullDataUrl(file),
-            fileName: p.name,
-            conversationId: conversationInfo().id,
-          }),
-        });
-        const data = (await res.json()) as { url?: string; error?: string };
-        if (data.url) uploaded.set(p.id, data.url);
-        setPhotos((prev) =>
-          prev.map((x) =>
-            x.id === p.id
-              ? data.url
-                ? { ...x, uploadedUrl: data.url, status: "prête" }
-                : { ...x, status: data.error ?? "Échec envoi" }
-              : x,
-          ),
-        );
+        const originalUrl = originals.get(p.id);
+        if (!originalUrl) continue; // upload failed above: stays for a retry
+        try {
+          const res = await fetch("/api/photos/process", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: originalUrl,
+              fileName: p.name,
+              conversationId: conversationInfo().id,
+            }),
+          });
+          const data = await parseResponse<{ url?: string; error?: string; fallback?: boolean }>(res);
+          const finalUrl = data.url ?? originalUrl;
+          uploaded.set(p.id, finalUrl);
+          setPhotos((prev) =>
+            prev.map((x) =>
+              x.id === p.id ? { ...x, uploadedUrl: finalUrl, status: t(lang, "photoReadyStatus") } : x,
+            ),
+          );
+        } catch (err) {
+          noteError(err);
+          uploaded.set(p.id, originalUrl);
+          setPhotos((prev) =>
+            prev.map((x) =>
+              x.id === p.id ? { ...x, uploadedUrl: originalUrl, status: t(lang, "photoReadyStatus") } : x,
+            ),
+          );
+        }
       }
       const byActivity = new Map<string, string[]>();
       const free: string[] = [];
@@ -598,16 +656,24 @@ export default function Home() {
         const title = known.find((k) => k.id === id)?.title ?? id;
         lines.push(`- "${title}" : ${urls.join(", ")}`);
       }
-      if (free.length) lines.push(`- Photos libres : ${free.join(", ")}`);
-      if (lines.length === 0) throw new Error("Aucune photo envoyée");
+      if (free.length) lines.push(`- ${t(lang, "freePhotos")} : ${free.join(", ")}`);
+      const skippedCount = photos.length - uploaded.size;
+      if (lines.length === 0) {
+        // Single summary message for the whole run (never shown twice).
+        setMessages((msgs) => [
+          ...msgs,
+          {
+            role: "assistant",
+            content: `${t(lang, "photosNoneReady").replace("{skipped}", String(skippedCount))}${firstError ? ` (${firstError})` : ""}`,
+          },
+        ]);
+        return;
+      }
       // Once used, EVERY photo of the batch leaves the dropzone: the
       // uploaded ones belong to the book now, and the ones the AI dropped
       // were considered and rejected — keeping them on screen trapped
       // the user in a re-analyse loop. Only photos the AI kept but whose
       // upload failed stay, with their status visible for a retry.
-      const droppedCount = photos.filter(
-        (p) => !keepIds.has(p.id),
-      ).length;
       const removed = photos.filter(
         (p) => uploaded.has(p.id) || !keepIds.has(p.id),
       );
@@ -623,9 +689,9 @@ export default function Home() {
       setPhotosOpen(false);
       await send(
         `Voici les photos préparées pour le livre (garde/photo_urls, recopie les liens sans les modifier). Rattachées :\n${lines.join("\n")}\nPlace toi-même les photos libres (rattachées à la bonne sortie, en pleine page, ou en page photo à part) et dis-moi en une ligne ce que tu as fait. Au moins 25% des photos en pleine page, sur au moins 25% des sorties qui ont des photos.`,
-        lang === "en"
-          ? `${uploaded.size} photo(s) ready${droppedCount ? `, ${droppedCount} dropped by the AI` : ""} — placing them in the book.`
-          : `${uploaded.size} photo(s) prête(s)${droppedCount ? `, ${droppedCount} écartée(s) par l’IA` : ""} — je les place dans le livre.`,
+        t(lang, "photosReadySkipped")
+          .replace("{ready}", String(uploaded.size))
+          .replace("{skipped}", String(skippedCount)),
       );
       // The wow moment: show the best uploaded photos composed as real
       // covers. One tap picks the book's cover photo (cover_photo_url).
@@ -652,14 +718,13 @@ export default function Home() {
         ]);
       }
     } catch (err) {
+      // Unexpected whole-run failure: one message only, in the user's language.
+      noteError(err);
       setMessages((msgs) => [
         ...msgs,
         {
           role: "assistant",
-          content:
-            lang === "en"
-              ? `Photo preparation failed (${err instanceof Error ? err.message : "error"}). You can still create the book without them.`
-              : `La préparation des photos a échoué (${err instanceof Error ? err.message : "erreur"}). Vous pouvez quand même créer le livre sans elles.`,
+          content: `${t(lang, "photosNoneReady").replace("{skipped}", String(photos.length))}${firstError ? ` (${firstError})` : ""}`,
         },
       ]);
     } finally {
@@ -712,8 +777,8 @@ export default function Home() {
         form.append("audio", new Blob([encodeWav(samples, rate)], { type: "audio/wav" }), "audio.wav");
         form.append("conversationId", conversationInfo().id);
         const res = await fetch("/api/transcribe", { method: "POST", body: form });
-        const data = (await res.json()) as { text?: string; error?: string };
-        if (!res.ok || data.error) throw new Error(data.error ?? "Transcription failed");
+        const data = await parseResponse<{ text?: string; error?: string }>(res);
+        if (!res.ok || data.error) throw new Error(data.error ?? t(lang, "invalidResponse"));
         if (data.text) {
           setInput((prev) => (prev ? `${prev} ${data.text}` : data.text ?? ""));
         }
@@ -722,7 +787,7 @@ export default function Home() {
           ...m,
           {
             role: "assistant",
-            content: `Désolé — la transcription a échoué (${err instanceof Error ? err.message : "erreur"}). Vous pouvez écrire votre réponse. / Sorry — transcription failed, please type instead.`,
+            content: t(lang, "transcriptionFailed").replace("{err}", err instanceof Error ? err.message : t(lang, "invalidResponse")),
           },
         ]);
       } finally {
@@ -748,8 +813,7 @@ export default function Home() {
         ...m,
         {
           role: "assistant",
-          content:
-            "Je n’ai pas accès au micro (autorisation refusée ?). Vous pouvez écrire votre réponse. / Microphone unavailable — please type.",
+          content: t(lang, "micUnavailable"),
         },
       ]);
     }
@@ -794,7 +858,7 @@ export default function Home() {
     setMessages(next);
     setInput("");
     setBusy(true);
-    setStatus("Thinking…");
+    setStatus(t(lang, "thinking"));
     try {
       const conv = conversationInfo();
       const res = await fetch("/api/chat", {
@@ -817,11 +881,12 @@ export default function Home() {
             ...(bookChoiceRef.current?.kind === "continue"
               ? { continueBookId: bookChoiceRef.current.bookId }
               : {}),
+            pendingPhotos: photosRef.current.length,
           },
           ...(turnstileToken ? { turnstileToken } : {}),
         }),
       });
-      const data = (await res.json()) as {
+      const data = await parseResponse<{
         reply?: string;
         ui?: UiEvent[];
         toolEvents?: { label: string }[];
@@ -829,7 +894,7 @@ export default function Home() {
         code?: string;
         challenge?: boolean;
         detectedLang?: string;
-      };
+      }>(res);
       // The conversation language wins over the browser language for the
       // whole UI (prices included) — unless the user picked a language.
       if (
@@ -959,7 +1024,7 @@ export default function Home() {
     const base: Msg[] = [...messages, { role: "user", content: display, display }];
     setMessages(base);
     setBusy(true);
-    setStatus(lang === "en" ? "Creating your book draft…" : "Création de votre livre…");
+    setStatus(t(lang, "creatingBook"));
     try {
       const firstAsk = messages.find((m) => m.role === "user")?.content ?? "AdvenBook";
       const res = await fetch("/api/books/create", {
@@ -975,21 +1040,17 @@ export default function Home() {
           ...(coverUrlRef.current ? { coverPhotoUrl: coverUrlRef.current } : {}),
         }),
       });
-      const data = (await res.json()) as {
+      const data = await parseResponse<{
         books?: Extract<UiEvent, { kind: "book" }>[];
         reply?: string;
         error?: string;
-      };
+      }>(res);
       if (!res.ok || data.error || !data.books?.length) {
         setMessages([
           ...base,
           {
             role: "assistant",
-            content:
-              data.error ??
-              (lang === "en"
-                ? "Book creation failed — please try again."
-                : "La création du livre a échoué — réessayez."),
+            content: data.error ?? t(lang, "bookCreationFailed"),
           },
         ]);
         return;
@@ -1008,17 +1069,14 @@ export default function Home() {
       }
       setMessages([
         ...base,
-        { role: "assistant", content: data.reply ?? "Votre livre est prêt.", ui: data.books },
+        { role: "assistant", content: data.reply ?? t(lang, "bookReady"), ui: data.books },
       ]);
     } catch {
       setMessages([
         ...base,
         {
           role: "assistant",
-          content:
-            lang === "en"
-              ? "I could not reach the server to create the book. Please try again."
-              : "Je n’ai pas pu joindre le serveur pour créer le livre. Réessayez dans un instant.",
+          content: t(lang, "bookNetworkError"),
         },
       ]);
     } finally {
@@ -1091,12 +1149,9 @@ export default function Home() {
       <main aria-live="polite">
         {connectionId && !latestActivities && (
           <div className="card">
-            <h2>Strava : connexion détectée sur cet appareil</h2>
+            <h2>{t(lang, "resumeTitle")}</h2>
             <p style={{ margin: "0 0 10px", fontSize: 14 }}>
-              Si vous avez déjà autorisé Strava sur la page AdvenBook (même si elle a
-              remplacé cette page), cliquez Continuer : je lis vos sorties directement.
-              Sinon, redemandez votre livre dans la conversation pour obtenir un lien
-              de connexion.
+              {t(lang, "resumeCardBody")}
             </p>
             <div className="row" style={{ marginTop: 0 }}>
               <button
@@ -1173,10 +1228,7 @@ export default function Home() {
                     chosenBookId=""
                     onContinue={(book) => {
                       setBookChoice({ kind: "continue", bookId: book.book_id });
-                      const display =
-                        lang === "en"
-                          ? `Continuing my book “${book.title}”`
-                          : `Je continue mon livre « ${book.title} »`;
+                      const display = t(lang, "continuingBookDisplay").replace("{title}", book.title);
                       setMessages((prev) => [
                         ...prev,
                         {
@@ -1186,26 +1238,19 @@ export default function Home() {
                         },
                         {
                           role: "assistant",
-                          content:
-                            lang === "en"
-                              ? "Got it — we'll add to that book. Tick your outings below, then Continue or Create directly."
-                              : "C’est noté — on ajoute à ce livre. Cochez vos sorties ci-dessous, puis Continuer ou Créer directement.",
+                          content: t(lang, "continueBookReply"),
                         },
                       ]);
                     }}
                     onNewBook={() => {
                       setBookChoice({ kind: "new" });
-                      const display =
-                        lang === "en" ? "Starting a new book" : "Je commence un nouveau livre";
+                      const display = t(lang, "newBookDisplay");
                       setMessages((prev) => [
                         ...prev,
                         { role: "user", content: display, display },
                         {
                           role: "assistant",
-                          content:
-                            lang === "en"
-                              ? "Got it — a brand-new book. Tick your outings below, then Continue or Create directly."
-                              : "C’est noté — un tout nouveau livre. Cochez vos sorties ci-dessous, puis Continuer ou Créer directement.",
+                          content: t(lang, "newBookReply"),
                         },
                       ]);
                     }}
@@ -1235,7 +1280,7 @@ export default function Home() {
                       setCoverUrl(photo.url);
                       void send(
                         `Je choisis cette photo pour la couverture du livre : ${photo.url} (à passer comme cover_photo_url à la création).`,
-                        lang === "en" ? "Cover photo chosen ✓" : "Photo de couverture choisie ✓",
+                        t(lang, "coverChosenDisplay"),
                       );
                     }}
                   />
@@ -1327,7 +1372,7 @@ export default function Home() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={t(lang, "placeholder")}
-          aria-label="Your message"
+          aria-label={t(lang, "yourMessage")}
           disabled={busy}
         />
         <button
@@ -1335,7 +1380,7 @@ export default function Home() {
           type="button"
           disabled={busy || transcribing}
           onClick={() => void toggleMic()}
-          aria-label={recording ? "Arrêter l'enregistrement" : "Parler au micro"}
+          aria-label={recording ? t(lang, "micStop") : t(lang, "micStart")}
         >
           {transcribing ? t(lang, "transcribing") : recording ? t(lang, "stop") : t(lang, "speak")}
         </button>
@@ -1349,7 +1394,7 @@ export default function Home() {
           : `${t(lang, "speak")} → ${t(lang, "send")} · GPX / photos ↓`}
         {" · "}
         <a href="/transparence">
-          {lang === "en" ? "Transparency & your data" : "Transparence et vos données"}
+          {t(lang, "transparencyLink")}
         </a>
       </div>
     </div>

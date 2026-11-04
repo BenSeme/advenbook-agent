@@ -12,26 +12,57 @@ export const maxDuration = 60;
 
 const PROMPTS = ["person", "mountain summit", "bicycle", "mountain"];
 
+function isBlobUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && u.hostname.endsWith(".public.blob.vercel-storage.com");
+  } catch {
+    return false;
+  }
+}
+
 // SAM 3.1 finds the subject, sharp crops to a 3:2 print ratio around it,
 // then the crop is uploaded to Vercel Blob as a public photo_url.
+// Primary input is { url }: the full-quality original the browser already
+// uploaded straight to Blob, so no image bytes cross this route and the
+// Vercel request-body limit can never reject it, whatever its size.
+// Legacy { dataUrl } is still accepted. On any crop failure the caller
+// falls back to the original URL, so the photo still reaches the book.
 export async function POST(req: Request) {
-  if (await rateLimited(`photos-process:${clientIp(req)}`, 40, 10 * 60 * 1000)) {
+  if (await rateLimited(`photos-process:${clientIp(req)}`, 60, 10 * 60 * 1000)) {
     return NextResponse.json({ error: "Too many photo uploads — retry in a few minutes." }, { status: 429 });
   }
-  let body: { dataUrl?: unknown; fileName?: unknown; conversationId?: unknown };
+  let body: { url?: unknown; dataUrl?: unknown; fileName?: unknown; conversationId?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+
+  const sourceUrl = typeof body.url === "string" && isBlobUrl(body.url) ? body.url : "";
   const dataUrl = typeof body.dataUrl === "string" ? body.dataUrl : "";
-  const match = dataUrl.match(/^data:image\/\w+;base64,(.+)$/);
-  if (!match) {
-    return NextResponse.json({ error: "Expected a base64 image." }, { status: 400 });
-  }
-  const input = Buffer.from(match[1], "base64");
-  if (input.length > 12 * 1024 * 1024) {
-    return NextResponse.json({ error: "Image too large (12 MB max)." }, { status: 413 });
+  let input: Buffer;
+  let samImage: string;
+  if (sourceUrl) {
+    try {
+      const res = await fetch(sourceUrl);
+      if (!res.ok) throw new Error(`Blob fetch ${res.status}.`);
+      input = Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      logError("photos-process-fetch", err);
+      return NextResponse.json(
+        { error: "Could not fetch the uploaded photo.", url: sourceUrl, fallback: true },
+        { status: 502 },
+      );
+    }
+    samImage = sourceUrl;
+  } else {
+    const match = dataUrl.match(/^data:image\/\w+;base64,(.+)$/);
+    if (!match) {
+      return NextResponse.json({ error: "Expected a Blob url or a base64 image." }, { status: 400 });
+    }
+    input = Buffer.from(match[1], "base64");
+    samImage = dataUrl;
   }
 
   try {
@@ -44,10 +75,14 @@ export async function POST(req: Request) {
     let usedPrompt: string | null = null;
     const segment = (prompt: string) =>
       isConversationId(body.conversationId)
-        ? withConversationContext(body.conversationId, () => segmentSubject(dataUrl, prompt))
-        : segmentSubject(dataUrl, prompt);
+        ? withConversationContext(body.conversationId, () => segmentSubject(samImage, prompt))
+        : segmentSubject(samImage, prompt);
     for (const prompt of PROMPTS) {
-      box = await segment(prompt);
+      try {
+        box = await segment(prompt);
+      } catch {
+        box = null;
+      }
       if (box) {
         usedPrompt = prompt;
         break;
@@ -61,10 +96,12 @@ export async function POST(req: Request) {
       .toBuffer();
 
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      // The original is already public on Blob: the book can use it as-is.
+      if (sourceUrl) return NextResponse.json({ url: sourceUrl, box, usedPrompt, crop: rect, fallback: true });
       return NextResponse.json(
         {
           error:
-            "Recadrage OK, mais l’envoi des photos n’est pas configuré sur le serveur (BLOB_READ_WRITE_TOKEN manquant dans .env.local). La photo reste sur votre appareil pour l’instant. / Crop OK, but photo upload is not configured on the server yet.",
+            "Recadrage OK, mais l’envoi des photos n’est pas configuré sur le serveur (BLOB_READ_WRITE_TOKEN manquant dans .env.local). / Crop OK, but photo upload is not configured on the server yet.",
           box,
           usedPrompt,
           crop: rect,
@@ -78,6 +115,10 @@ export async function POST(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Processing failed.";
     logError("photos-process", err);
+    // Never lose the photo: signal the caller to keep the original URL.
+    if (sourceUrl) {
+      return NextResponse.json({ error: message, url: sourceUrl, fallback: true }, { status: 502 });
+    }
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

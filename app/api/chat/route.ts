@@ -58,6 +58,7 @@ export async function POST(req: Request) {
       coverPhotoUrl?: unknown;
       continueBookId?: unknown;
       bookChoice?: unknown;
+      pendingPhotos?: unknown;
     };
     turnstileToken?: unknown;
     conversationId?: unknown;
@@ -139,6 +140,11 @@ export async function POST(req: Request) {
         .slice(0, 200)
     : undefined;
 
+  const pendingPhotos =
+    typeof body.context?.pendingPhotos === "number" && Number.isFinite(body.context.pendingPhotos)
+      ? Math.max(0, Math.min(300, Math.floor(body.context.pendingPhotos)))
+      : 0;
+
   // Trust anchors, cheapest first: a Strava connection means an AdvenBook
   // account exists; a passed human check (only ever asked at the cap)
   // marks this visitor verified for the day.
@@ -177,6 +183,7 @@ export async function POST(req: Request) {
           continueBookId,
           bookChoice,
           conversationId,
+          pendingPhotos,
         }),
       ),
     );
