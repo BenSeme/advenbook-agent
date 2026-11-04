@@ -35,6 +35,24 @@ export function stripAdvenBookUrls(text: string): string {
     .trim();
 }
 
+/**
+ * The editor URL only when the book belongs to a Strava-connected
+ * account. Without a Strava connection there is no AdvenBook account and
+ * the editor page would show the site's demo book instead of the
+ * visitor's, so no editor URL is derived: the claim link is their book.
+ */
+export function editorUrlForBook(
+  claimUrl: string,
+  hasStravaConnection: boolean,
+): string | undefined {
+  return hasStravaConnection ? editorUrlFromClaim(claimUrl) ?? undefined : undefined;
+}
+
+/** The URL the "Open my book" button must open for this book. */
+export function openBookUrl(claimUrl: string, hasStravaConnection: boolean): string {
+  return editorUrlForBook(claimUrl, hasStravaConnection) ?? claimUrl;
+}
+
 export function editorUrlFromClaim(claimUrl: string): string | null {
   let url: URL;
   try {

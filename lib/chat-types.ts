@@ -1,6 +1,9 @@
 // Shared chat/UI types (page, cards, files panel).
 import type { GpxActivity } from "./gpx";
+import type { KomootTourMeta } from "./komoot";
 import type { MyBook } from "./my-books";
+
+export type { KomootTourMeta };
 
 export type { MyBook };
 
@@ -20,6 +23,7 @@ export type UiEvent =
   | { kind: "connect"; connectUrl: string; connectionId: string }
   | { kind: "activities"; activities: Activity[] }
   | { kind: "mybooks"; books: MyBook[] }
+  | { kind: "komoot"; tours: KomootTourMeta[]; shareToken?: string }
   | {
       kind: "cover";
       title: string;

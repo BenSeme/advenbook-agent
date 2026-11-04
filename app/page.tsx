@@ -13,7 +13,9 @@ import {
   fmtPrice,
   type Lang,
 } from "@/lib/i18n";
-import { parseGpx } from "@/lib/gpx";
+import { parseGpx, parseTcx } from "@/lib/gpx";
+import { parseFit } from "@/lib/fit";
+import type { GpxActivity } from "@/lib/gpx";
 import exifr from "exifr";
 import type {
   Activity,
@@ -32,12 +34,13 @@ import {
   type BookChoice,
 } from "@/lib/book-choice";
 import { CelebrationCard, type CelebData } from "./components/CelebrationCard";
-import { FilesPanel } from "./components/FilesPanel";
+import { FilesPanel, isImageFile, isTrackFile } from "./components/FilesPanel";
+import { KomootCard } from "./components/KomootCard";
 
 const GREETING: Msg = {
   role: "assistant",
   content:
-    "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre. Pas de Strava ? Dites-le-moi : on partira d’une liste que vous me dictez.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language. No Strava? Just say so — we’ll use a list you dictate.",
+    "Bonjour ! Dites-moi quel livre vous voulez — par exemple « Mon été dans les Pyrénées ». Vous pouvez parler au micro ou écrire. Je connecte votre Strava, je choisis les sorties avec vous, et je prépare le brouillon du livre. Pas de Strava ? Aucun souci : Garmin, Komoot ou un dossier de fichiers GPX + photos feront l’affaire — glissez-les ci-dessous ou collez un lien Komoot.\n\nHi! Tell me what book you want — e.g. “My summer in the Pyrenees”. Speak or type; I’ll reply in your language. No Strava? No problem: Garmin, Komoot or a folder of GPX files + photos works too — drop them below or paste a Komoot link.",
 };
 
 /** Same-day rule: main outing ticked, warm-ups unticked. No count cap. */
@@ -99,6 +102,14 @@ export default function Home() {
     if ((LANGS as string[]).includes(nav)) setLang(nav);
     setDevice(detectDevice(navigator.userAgent));
   }, []);
+  // Localised welcome (all 6 languages) until the conversation starts.
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.length === 1 && prev[0].role === "assistant"
+        ? [{ role: "assistant", content: t(lang, "welcome") }]
+        : prev,
+    );
+  }, [lang]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -300,21 +311,144 @@ export default function Home() {
     }
   }
 
-  async function onGpxFiles(files: FileList | null) {
-    if (!files) return;
-    for (const file of Array.from(files)) {
+  /** Parse GPX / TCX (Garmin) / FIT files into manual outings. Returns
+   *  the outings created, so a folder drop can match photos right after. */
+  async function importTrackFiles(files: File[]): Promise<ManualActivity[]> {
+    const created: ManualActivity[] = [];
+    for (const file of files) {
       try {
-        const parsed = parseGpx(await file.text());
-        setManual((m) => [...m, { ...parsed, id: crypto.randomUUID() }]);
+        const lower = file.name.toLowerCase();
+        const parsed = lower.endsWith(".fit")
+          ? await parseFit(await file.arrayBuffer(), file.name)
+          : lower.endsWith(".tcx")
+            ? parseTcx(await file.text())
+            : parseGpx(await file.text());
+        const activity: ManualActivity = { ...parsed, id: crypto.randomUUID() };
+        created.push(activity);
+        setManual((m) => [...m, activity]);
       } catch {
         setMessages((msgs) => [
           ...msgs,
           {
             role: "assistant",
-            content: `Je n’ai pas pu lire le fichier GPX « ${file.name} » (trace introuvable). Vérifiez que c’est bien un .gpx avec des points GPS.`,
+            content: `Je n’ai pas pu lire le fichier « ${file.name} » (trace introuvable). Vérifiez que c’est bien un .gpx, .tcx ou .fit Garmin avec des points GPS.`,
           },
         ]);
       }
+    }
+    return created;
+  }
+
+  async function onGpxFiles(files: FileList | File[] | null) {
+    if (!files) return;
+    await importTrackFiles(Array.from(files as File[]));
+  }
+
+  /** Whole folder (or mixed drop): tracks first, then photos matched to
+   *  the outings just imported (EXIF date/GPS) plus the ones already known. */
+  async function onFolderFiles(files: File[]) {
+    const capped = files.slice(0, 300);
+    const tracks = capped.filter(isTrackFile);
+    const imgs = capped.filter(isImageFile);
+    const created = tracks.length ? await importTrackFiles(tracks) : [];
+    if (imgs.length) {
+      const known = [
+        ...manual.map((a) => ({ id: a.id, title: a.title, date: a.date })),
+        ...created.map((a) => ({ id: a.id, title: a.title, date: a.date })),
+      ];
+      await onPhotoFiles(imgs, known);
+    }
+  }
+
+  /** Komoot link pasted in chat: tour -> outing now, profile -> checklist. */
+  async function importKomootUrl(url: string, userText: string) {
+    const base: Msg[] = [...messages, { role: "user", content: userText }];
+    setMessages(base);
+    setBusy(true);
+    setStatus(lang === "en" ? "Reading Komoot…" : "Lecture de Komoot…");
+    try {
+      const res = await fetch("/api/komoot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = (await res.json()) as {
+        mode?: string;
+        tours?: Extract<UiEvent, { kind: "komoot" }>["tours"];
+        outings?: GpxActivity[];
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        setMessages([...base, { role: "assistant", content: data.error ?? "Komoot : lecture impossible." }]);
+        return;
+      }
+      if (data.mode === "profile" && data.tours?.length) {
+        const shareToken = new URL(url).searchParams.get("share_token") ?? undefined;
+        setMessages([
+          ...base,
+          {
+            role: "assistant",
+            content:
+              lang === "en"
+                ? `I found ${data.tours.length} public Komoot outings. Untick the ones you don't want, then import the selection — Garmin, Komoot or a folder of GPX + photos all work here, no Strava needed.`
+                : `J’ai trouvé ${data.tours.length} sorties Komoot publiques. Décochez celles que vous ne voulez pas, puis importez la sélection — Garmin, Komoot ou un dossier GPX + photos, tout marche ici, sans Strava.`,
+            ui: [{ kind: "komoot", tours: data.tours, ...(shareToken ? { shareToken } : {}) }],
+          },
+        ]);
+        return;
+      }
+      const outings = data.outings ?? [];
+      setManual((m) => [...m, ...outings.map((o) => ({ ...o, id: crypto.randomUUID() }))]);
+      setMessages([
+        ...base,
+        {
+          role: "assistant",
+          content:
+            lang === "en"
+              ? `${outings.length} Komoot outing(s) added below. Add your photos if you like, then tap “Create the book with my outings”.`
+              : `${outings.length} sortie(s) Komoot ajoutée(s) ci-dessous. Ajoutez vos photos si vous voulez, puis touchez « Créer le livre avec mes sorties ».`,
+        },
+      ]);
+    } catch {
+      setMessages([...base, { role: "assistant", content: t(lang, "netError") }]);
+    } finally {
+      setBusy(false);
+      setStatus(null);
+    }
+  }
+
+  async function importKomootTours(tourIds: string[], shareToken?: string) {
+    if (busy || tourIds.length === 0) return;
+    setBusy(true);
+    setStatus(lang === "en" ? "Reading Komoot…" : "Lecture de Komoot…");
+    try {
+      const res = await fetch("/api/komoot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tourIds, ...(shareToken ? { shareToken } : {}) }),
+      });
+      const data = (await res.json()) as { outings?: GpxActivity[]; error?: string };
+      if (!res.ok || data.error) {
+        setMessages((msgs) => [...msgs, { role: "assistant", content: data.error ?? "Komoot : lecture impossible." }]);
+        return;
+      }
+      const outings = data.outings ?? [];
+      setManual((m) => [...m, ...outings.map((o) => ({ ...o, id: crypto.randomUUID() }))]);
+      setMessages((msgs) => [
+        ...msgs,
+        {
+          role: "assistant",
+          content:
+            lang === "en"
+              ? `${outings.length} Komoot outing(s) added below. Add your photos if you like, then tap “Create the book with my outings”.`
+              : `${outings.length} sortie(s) Komoot ajoutée(s) ci-dessous. Ajoutez vos photos si vous voulez, puis touchez « Créer le livre avec mes sorties ».`,
+        },
+      ]);
+    } catch {
+      setMessages((msgs) => [...msgs, { role: "assistant", content: t(lang, "netError") }]);
+    } finally {
+      setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -333,9 +467,12 @@ export default function Home() {
     ];
   }
 
-  async function onPhotoFiles(files: FileList | null) {
+  async function onPhotoFiles(
+    files: FileList | File[] | null,
+    knownOverride?: { id: string; title: string; date: string }[],
+  ) {
     if (!files) return;
-    const known = knownDates();
+    const known = knownOverride ?? knownDates();
     for (const file of Array.from(files)) {
       const id = crypto.randomUUID();
       photoFiles.current.set(id, file);
@@ -533,17 +670,21 @@ export default function Home() {
 
   function createManualBook() {
     if (manual.length === 0) return;
+    const dataSource = manual.some((a) => a.source === "other") ? "other" : "gpx_files";
     const lines = manual.map((a) => {
-      const urls = photos
-        .filter((p) => p.activityId === a.id && p.uploadedUrl)
-        .map((p) => p.uploadedUrl as string);
-      return `- ${a.title} | date ${a.date} | ${a.distanceKm} km | ${a.elevationGainM} m D+ | ${a.duration || "?"} | sport Randonnée | gps_polyline: ${a.polyline}${urls.length ? ` | photo_urls: ${urls.join(", ")}` : ""}`;
+      const urls = [
+        ...(a.photoUrls ?? []),
+        ...photos
+          .filter((p) => p.activityId === a.id && p.uploadedUrl)
+          .map((p) => p.uploadedUrl as string),
+      ];
+      return `- ${a.title} | date ${a.date} | ${a.distanceKm} km | ${a.elevationGainM} m D+ | ${a.duration || "?"} | sport ${a.sport ?? "Randonnée"} | gps_polyline: ${a.polyline}${urls.length ? ` | photo_urls: ${urls.join(", ")}` : ""}`;
     });
     const freeUrls = photos
       .filter((p) => !p.activityId && p.uploadedUrl)
       .map((p) => p.uploadedUrl as string);
     void send(
-      `Crée un livre sans Strava (source gpx_files) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. Place-les toi-même (rattachées à la bonne sortie, en pleine page, ou en page photo à part avec un titre court), sans me demander, et dis-moi en une ligne ce que tu as fait.` : ""}`,
+      `Crée un livre sans Strava (source ${dataSource}) avec exactement ces sorties, recopie chaque gps_polyline et photo_urls sans les modifier :\n${lines.join("\n")}${freeUrls.length ? `\nPhotos libres (pas encore rattachées) : ${freeUrls.join(", ")}. Place-les toi-même (rattachées à la bonne sortie, en pleine page, ou en page photo à part avec un titre court), sans me demander, et dis-moi en une ligne ce que tu as fait.` : ""}`,
       `Créer le livre avec mes ${manual.length} sortie(s) ajoutée(s) (GPX/photos).`,
     );
   }
@@ -626,6 +767,13 @@ export default function Home() {
     if (!display) {
       const detected = detectLangFromText(clean);
       if (detected && detected !== lang) setLang(detected);
+    }
+    // A Komoot link pasted in chat is imported directly, no LLM guessing.
+    const komootMatch = clean.match(/https?:\/\/(?:www\.)?komoot\.(?:com|de)\/[^\s)]+/i);
+    if (komootMatch) {
+      await importKomootUrl(komootMatch[0], clean);
+      setInput("");
+      return;
     }
     // "It's done / c'est fait" with a known connection: read Strava directly.
     if (
@@ -804,10 +952,10 @@ export default function Home() {
    *  the whole Strava list or re-ask continue-or-new. */
   async function createDirectBook(chosen: Activity[]) {
     if (busy || chosen.length === 0) return;
-    const display =
-      lang === "en"
-        ? `Create directly (${chosen.length} outings, no stories).`
-        : `Création directe demandée (${chosen.length} sorties, sans histoires).`;
+    const display = t(lang, "directCreateConfirmed").replace(
+      "{n}",
+      String(chosen.length),
+    );
     const base: Msg[] = [...messages, { role: "user", content: display, display }];
     setMessages(base);
     setBusy(true);
@@ -900,7 +1048,7 @@ export default function Home() {
       .join("; ");
     send(
       `I confirm these outings: ${list}. Ask me your questions, one outing at a time.`,
-      `Sélection confirmée (${chosen.length} sorties).`,
+      t(lang, "selectionConfirmed").replace("{n}", String(chosen.length)),
     );
   }
 
@@ -1064,6 +1212,17 @@ export default function Home() {
                   />
                 );
               }
+              if (e.kind === "komoot") {
+                return (
+                  <KomootCard
+                    key={j}
+                    e={e}
+                    lang={lang}
+                    busy={busy}
+                    onImport={(ids) => void importKomootTours(ids, e.shareToken)}
+                  />
+                );
+              }
               if (e.kind === "cover") {
                 return (
                   <CoverCard
@@ -1124,6 +1283,7 @@ export default function Home() {
         known={knownDates()}
         onGpxFiles={(f) => void onGpxFiles(f)}
         onPhotoFiles={(f) => void onPhotoFiles(f)}
+        onFolderFiles={(f) => void onFolderFiles(f)}
         onRemoveManual={(id) => setManual((m) => m.filter((x) => x.id !== id))}
         onCreateManual={createManualBook}
         onTogglePhotosOpen={() => setPhotosOpen((v) => !v)}

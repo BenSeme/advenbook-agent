@@ -1,10 +1,62 @@
 "use client";
 
+import { useState } from "react";
 import { fmtDistance, fmtElevation, t, type Lang } from "@/lib/i18n";
 import type { DeviceKind } from "@/lib/i18n";
 import type { ManualActivity, PhotoItem } from "@/lib/chat-types";
 
 export type KnownDate = { id: string; title: string; date: string };
+
+const TRACK_EXT = [".gpx", ".tcx", ".fit"];
+const IMAGE_EXT = [".jpg", ".jpeg", ".png", ".heic", ".webp"];
+
+export function isTrackFile(f: File): boolean {
+  const n = f.name.toLowerCase();
+  return TRACK_EXT.some((e) => n.endsWith(e));
+}
+export function isImageFile(f: File): boolean {
+  const n = f.name.toLowerCase();
+  return f.type.startsWith("image/") || IMAGE_EXT.some((e) => n.endsWith(e));
+}
+
+type FsEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  file?: (ok: (f: File) => void, err?: (e: unknown) => void) => void;
+  createReader?: () => { readEntries: (ok: (e: FsEntry[]) => void, err?: (e: unknown) => void) => void };
+};
+
+/** Recursively read a dropped folder (webkit entries), max 300 files. */
+async function collectDroppedFiles(dt: DataTransfer): Promise<File[]> {
+  const items = Array.from(dt.items ?? []).filter((i) => i.kind === "file");
+  const entries = items
+    .map((i) => (typeof i.webkitGetAsEntry === "function" ? i.webkitGetAsEntry() : null))
+    .filter((e): e is NonNullable<typeof e> => Boolean(e)) as unknown as FsEntry[];
+  if (entries.length === 0) return Array.from(dt.files).slice(0, 300);
+  const out: File[] = [];
+  async function walk(entry: FsEntry): Promise<void> {
+    if (out.length >= 300) return;
+    if (entry.isFile && entry.file) {
+      const f = await new Promise<File | null>((res) => entry.file?.(res, () => res(null)));
+      if (f) out.push(f);
+      return;
+    }
+    if (entry.isDirectory && entry.createReader) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise<FsEntry[]>((res) => reader.readEntries(res, () => res([])));
+        if (batch.length === 0) break;
+        for (const child of batch) {
+          await walk(child);
+          if (out.length >= 300) return;
+        }
+      }
+    }
+  }
+  for (const e of entries) await walk(e);
+  return out.slice(0, 300);
+}
 
 export function FilesPanel({
   lang,
@@ -17,6 +69,7 @@ export function FilesPanel({
   known,
   onGpxFiles,
   onPhotoFiles,
+  onFolderFiles,
   onRemoveManual,
   onCreateManual,
   onTogglePhotosOpen,
@@ -33,8 +86,9 @@ export function FilesPanel({
   photos: PhotoItem[];
   photosOpen: boolean;
   known: KnownDate[];
-  onGpxFiles: (files: FileList | null) => void;
-  onPhotoFiles: (files: FileList | null) => void;
+  onGpxFiles: (files: FileList | File[] | null) => void;
+  onPhotoFiles: (files: FileList | File[] | null) => void;
+  onFolderFiles?: (files: File[]) => void;
   onRemoveManual: (id: string) => void;
   onCreateManual: () => void;
   onTogglePhotosOpen: () => void;
@@ -49,6 +103,25 @@ export function FilesPanel({
       : device === "android"
         ? t(lang, "hintAndroid")
         : t(lang, "hintDesktop");
+  const [foundLine, setFoundLine] = useState<string | null>(null);
+  function dispatchFiles(files: File[]) {
+    const capped = files.slice(0, 300);
+    const tracks = capped.filter(isTrackFile);
+    const imgs = capped.filter(isImageFile);
+    if (tracks.length || imgs.length) {
+      setFoundLine(
+        lang === "en"
+          ? `Found ${tracks.length} outings and ${imgs.length} photos`
+          : `Trouvé ${tracks.length} sortie(s) et ${imgs.length} photo(s)`,
+      );
+    }
+    if (onFolderFiles) {
+      onFolderFiles(capped);
+      return;
+    }
+    if (tracks.length) onGpxFiles(tracks);
+    if (imgs.length) onPhotoFiles(imgs);
+  }
   const shortHint =
     device === "iphone"
       ? lang === "en" ? "iPhone — Photos opens directly." : "iPhone — la photothèque s’ouvre directement."
@@ -63,19 +136,7 @@ export function FilesPanel({
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
-        const files = Array.from(e.dataTransfer.files);
-        const gpx = files.filter((f) => f.name.toLowerCase().endsWith(".gpx"));
-        const imgs = files.filter((f) => f.type.startsWith("image/"));
-        if (gpx.length) {
-          const dt = new DataTransfer();
-          gpx.forEach((f) => dt.items.add(f));
-          onGpxFiles(dt.files);
-        }
-        if (imgs.length) {
-          const dt = new DataTransfer();
-          imgs.forEach((f) => dt.items.add(f));
-          onPhotoFiles(dt.files);
-        }
+        void collectDroppedFiles(e.dataTransfer).then(dispatchFiles);
       }}
     >
       <p style={{ margin: "0 0 6px", fontSize: 12, color: "var(--brand-muted)" }} title={hint}>
@@ -86,11 +147,26 @@ export function FilesPanel({
           {t(lang, "addGpx")}
           <input
             type="file"
-            accept=".gpx"
+            accept=".gpx,.tcx,.fit"
             multiple
             hidden
             onChange={(e) => {
               onGpxFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <label className="btn secondary" style={{ cursor: "pointer" }}>
+          {t(lang, "chooseFolder")}
+          <input
+            type="file"
+            multiple
+            hidden
+            ref={(el) => {
+              el?.setAttribute("webkitdirectory", "");
+            }}
+            onChange={(e) => {
+              dispatchFiles(Array.from(e.target.files ?? []));
               e.target.value = "";
             }}
           />
@@ -114,6 +190,11 @@ export function FilesPanel({
           </button>
         )}
       </div>
+      {foundLine && (
+        <p style={{ margin: "8px 0 0", fontSize: 13 }} role="status">
+          {foundLine}
+        </p>
+      )}
       {manual.map((a) => (
         <p key={a.id} style={{ margin: "8px 0 0", fontSize: 13 }}>
           <strong>{a.title}</strong> · {a.date} · {fmtDistance(a.distanceKm, lang)} · {fmtElevation(a.elevationGainM, lang)} · GPS OK
