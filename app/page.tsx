@@ -25,7 +25,7 @@ import type {
   PhotoItem,
   UiEvent,
 } from "@/lib/chat-types";
-import { upload } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 import { blobPathnameFor, chunkItems, errorKeyForStatus, parseJsonText } from "@/lib/photo-payload";
 import { encodeWav } from "@/lib/voice";
 import { ActivitiesCard, BookCard, ConnectCard, CoverCard, MyBooksCard } from "./components/cards";
@@ -538,7 +538,7 @@ export default function Home() {
         const file = photoFiles.current.get(p.id);
         if (!file) continue;
         try {
-          const blob = await upload(blobPathnameFor(p.id, p.name), file, {
+          const blob = await uploadPresigned(blobPathnameFor(p.id, p.name), file, {
             access: "public",
             handleUploadUrl: "/api/photos/upload",
             contentType: file.type || undefined,
