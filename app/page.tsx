@@ -27,6 +27,7 @@ import type {
 } from "@/lib/chat-types";
 import { uploadPresigned } from "@vercel/blob/client";
 import { blobPathnameFor, chunkItems, errorKeyForStatus, parseJsonText } from "@/lib/photo-payload";
+import { mapPool } from "@/lib/promise-pool";
 import { encodeWav } from "@/lib/voice";
 import { ActivitiesCard, BookCard, ConnectCard, CoverCard, MyBooksCard } from "./components/cards";
 import {
@@ -150,6 +151,7 @@ export default function Home() {
     photosRef.current = photos;
   }, [photos]);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const photoFiles = useRef(new Map<string, File>());
   const [listOpen, setListOpen] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -516,6 +518,17 @@ export default function Home() {
   async function preparePhotos() {
     if (photoBusy || photos.length === 0) return;
     setPhotoBusy(true);
+    setPhotoProgress({ done: 0, total: photos.length });
+    const deadline = Date.now() + 60_000;
+    const expired = () => Date.now() >= deadline;
+    const counted = new Set<string>();
+    let progressDone = 0;
+    const markDone = (id: string) => {
+      if (counted.has(id)) return;
+      counted.add(id);
+      progressDone += 1;
+      setPhotoProgress({ done: progressDone, total: photos.length });
+    };
     setStatus(t(lang, "choosingPhotos"));
     let firstError: string | null = null;
     const noteError = (err: unknown) => {
@@ -530,19 +543,26 @@ export default function Home() {
       //    rejected for its size. Only the returned URL travels onwards.
       setStatus(t(lang, "uploadingPhotos"));
       const originals = new Map<string, string>();
-      for (const p of photos) {
+      await mapPool(photos, 4, async (p) => {
         if (p.originalUrl) {
           originals.set(p.id, p.originalUrl);
-          continue;
+          return;
         }
         const file = photoFiles.current.get(p.id);
-        if (!file) continue;
+        if (!file) {
+          markDone(p.id);
+          return;
+        }
         try {
           const blob = await uploadPresigned(blobPathnameFor(p.id, p.name), file, {
             access: "public",
             handleUploadUrl: "/api/photos/upload",
             contentType: file.type || undefined,
             multipart: file.size >= 4 * 1024 * 1024,
+            // A stalled upload must never leave the button on "Preparing…" forever:
+            // after 2 minutes this photo fails, stays in the drop zone for a retry,
+            // and the others carry on.
+            abortSignal: AbortSignal.timeout(120_000),
           });
           originals.set(p.id, blob.url);
           setPhotos((prev) =>
@@ -555,8 +575,9 @@ export default function Home() {
           setPhotos((prev) =>
             prev.map((x) => (x.id === p.id ? { ...x, status: msg } : x)),
           );
+          markDone(p.id);
         }
-      }
+      });
       // 2) Vision selection by URL only (tiny bodies, batched at the cap).
       setStatus(t(lang, "choosingPhotos"));
       const groups = new Map<string, PhotoItem[]>();
@@ -567,54 +588,81 @@ export default function Home() {
       }
       const keepIds = new Set<string>();
       const reasons = new Map<string, string>();
+      type SelectTask = { title: string; batch: { id: string; url: string }[] };
+      const selectTasks: SelectTask[] = [];
       for (const [activityId, group] of groups) {
         const title =
           activityId === "__free__"
             ? t(lang, "freePhotos")
             : (known.find((k) => k.id === activityId)?.title ?? t(lang, "outingFallback"));
         const images = group.map((p) => ({ id: p.id, url: originals.get(p.id) as string }));
-        for (const batch of chunkItems(images)) {
-          try {
-            const res = await fetch("/api/photos/select", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ outingTitle: title, images: batch, conversationId: conversationInfo().id }),
-            });
-            const data = await parseResponse<{
-              keep?: { id: string; reason: string }[];
-              error?: string;
-            }>(res);
-            if (!res.ok || data.error) throw new Error(data.error ?? t(lang, "analysisFailed"));
-            for (const k of data.keep ?? []) {
-              keepIds.add(k.id);
-              reasons.set(k.id, k.reason);
-            }
-          } catch (err) {
-            // One failed batch must not stop the others: keep its photos.
-            noteError(err);
-            for (const img of batch) keepIds.add(img.id);
-          }
-        }
+        for (const batch of chunkItems(images)) selectTasks.push({ title, batch });
       }
+      await mapPool(selectTasks, 2, async ({ title, batch }) => {
+        // Past the deadline: skip vision, keep every photo of the batch.
+        if (expired()) {
+          for (const img of batch) keepIds.add(img.id);
+          return;
+        }
+        try {
+          const res = await fetch("/api/photos/select", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ outingTitle: title, images: batch, conversationId: conversationInfo().id }),
+            signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+          });
+          const data = await parseResponse<{
+            keep?: { id: string; reason: string }[];
+            error?: string;
+          }>(res);
+          if (!res.ok || data.error) throw new Error(data.error ?? t(lang, "analysisFailed"));
+          for (const k of data.keep ?? []) {
+            keepIds.add(k.id);
+            reasons.set(k.id, k.reason);
+          }
+        } catch (err) {
+          // One failed batch must not stop the others: keep its photos.
+          // A timeout here means the fallback below (originals) still applies.
+          if (!expired()) noteError(err);
+          for (const img of batch) keepIds.add(img.id);
+        }
+      });
       if (keepIds.size === 0) {
         for (const p of photos) keepIds.add(p.id); // vision kept none: keep all rather than block
       }
       setPhotos((prev) =>
         prev.map((p) => ({ ...p, kept: keepIds.has(p.id), reason: reasons.get(p.id) })),
       );
+      // Dropped by vision: finished for this run (considered, not sent).
+      for (const p of photos) {
+        if (originals.has(p.id) && !keepIds.has(p.id)) markDone(p.id);
+      }
       // 3) SAM crop by URL only. If cropping fails for any reason, the
       //    full-quality original (already public on Blob) is used as-is:
       //    every kept photo reaches the book, whatever its size.
       setStatus(t(lang, "croppingUploading"));
       const uploaded = new Map<string, string>();
-      for (const p of photos) {
-        if (!keepIds.has(p.id)) continue;
+      const keptPhotos = photos.filter((p) => keepIds.has(p.id));
+      await mapPool(keptPhotos, 4, async (p) => {
         if (p.uploadedUrl) {
           uploaded.set(p.id, p.uploadedUrl);
-          continue;
+          markDone(p.id);
+          return;
         }
         const originalUrl = originals.get(p.id);
-        if (!originalUrl) continue; // upload failed above: stays for a retry
+        if (!originalUrl) return; // upload failed above: already counted, stays for a retry
+        // Past 60 s: no crop call — the original (already public) goes to
+        // the book as-is, so preparation never blocks creation.
+        if (expired()) {
+          uploaded.set(p.id, originalUrl);
+          setPhotos((prev) =>
+            prev.map((x) =>
+              x.id === p.id ? { ...x, uploadedUrl: originalUrl, status: t(lang, "photoReadyStatus") } : x,
+            ),
+          );
+          markDone(p.id);
+          return;
+        }
         try {
           const res = await fetch("/api/photos/process", {
             method: "POST",
@@ -624,6 +672,7 @@ export default function Home() {
               fileName: p.name,
               conversationId: conversationInfo().id,
             }),
+            signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
           });
           const data = await parseResponse<{ url?: string; error?: string; fallback?: boolean }>(res);
           const finalUrl = data.url ?? originalUrl;
@@ -634,7 +683,8 @@ export default function Home() {
             ),
           );
         } catch (err) {
-          noteError(err);
+          // Crop failed or deadline hit mid-call: keep the original.
+          if (!expired()) noteError(err);
           uploaded.set(p.id, originalUrl);
           setPhotos((prev) =>
             prev.map((x) =>
@@ -642,7 +692,8 @@ export default function Home() {
             ),
           );
         }
-      }
+        markDone(p.id);
+      });
       const byActivity = new Map<string, string[]>();
       const free: string[] = [];
       for (const p of photos) {
@@ -730,6 +781,7 @@ export default function Home() {
       ]);
     } finally {
       setPhotoBusy(false);
+      setPhotoProgress(null);
       setStatus(null);
     }
   }
@@ -1325,6 +1377,7 @@ export default function Home() {
         device={device}
         busy={busy}
         photoBusy={photoBusy}
+        photoProgress={photoProgress}
         manual={manual}
         photos={photos}
         photosOpen={photosOpen}

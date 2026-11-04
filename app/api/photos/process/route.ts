@@ -10,7 +10,7 @@ import { isConversationId, withConversationContext } from "@/lib/tracking";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const PROMPTS = ["person", "mountain summit", "bicycle", "mountain"];
+const SAM_PROMPT = "person";
 
 function isBlobUrl(url: string): boolean {
   try {
@@ -77,16 +77,13 @@ export async function POST(req: Request) {
       isConversationId(body.conversationId)
         ? withConversationContext(body.conversationId, () => segmentSubject(samImage, prompt))
         : segmentSubject(samImage, prompt);
-    for (const prompt of PROMPTS) {
-      try {
-        box = await segment(prompt);
-      } catch {
-        box = null;
-      }
-      if (box) {
-        usedPrompt = prompt;
-        break;
-      }
+    // One SAM call only: if "person" finds nothing, computeCrop(null, …)
+    // crops around the image centre (3:2) right away.
+    try {
+      box = await segment(SAM_PROMPT);
+      if (box) usedPrompt = SAM_PROMPT;
+    } catch {
+      box = null;
     }
     const rect = computeCrop(box, imgW, imgH, 1.5);
     const cropped = await sharp(input)

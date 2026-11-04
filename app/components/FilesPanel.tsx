@@ -63,6 +63,7 @@ export function FilesPanel({
   device,
   busy,
   photoBusy,
+  photoProgress,
   manual,
   photos,
   photosOpen,
@@ -82,6 +83,7 @@ export function FilesPanel({
   device: DeviceKind;
   busy: boolean;
   photoBusy: boolean;
+  photoProgress?: { done: number; total: number } | null;
   manual: ManualActivity[];
   photos: PhotoItem[];
   photosOpen: boolean;
@@ -296,6 +298,13 @@ export function FilesPanel({
               {photoBusy ? t(lang, "preparingPhotos") : t(lang, "usePhotosInBook")}
             </button>
           </div>
+          {photoProgress && (
+            <p style={{ margin: "6px 0 0", fontSize: 13 }} role="status" aria-live="polite">
+              {t(lang, "preparingPhotosProgress")
+                .replace("{done}", String(photoProgress.done))
+                .replace("{total}", String(photoProgress.total))}
+            </p>
+          )}
           <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--brand-muted)" }}>
             {t(lang, "usePhotosNote")}
           </p>
